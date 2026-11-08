@@ -9,26 +9,46 @@ gsap.registerPlugin(ScrollTrigger);
  * ====================================================================
  * SCENE 3: TOOLS ARC
  * ====================================================================
- * - Figure remains in the center.
- * - Semicircle arc of 12 rounded-square glass tool tiles blooms above his head.
- * - Each tile floats with gentle idle bobbing and cursor parallax.
- * - Interactive hover scales each icon and reveals its name and category badge.
+ * - Exactly 11 core tool icons arranged in a clean semi-circle arc
+ *   centered above the head (from -75deg to +75deg via sin/cos).
+ * - Pre-computed static positions so the arc geometry is always perfect.
+ * - Consistent glass tile style (72px desktop / 52px mobile).
+ * - Staggered scroll entrance, gentle bobbing loops, cursor parallax.
+ * - Interactive hover with scale 1.15 and tool name/category badges.
+ * - Figure cutout uses the exact same soft-masked blending as Scene 2.
  */
 export default function Scene3ToolsArc() {
   const containerRef = useRef(null);
   const figureRef = useRef(null);
   const arcContainerRef = useRef(null);
   const iconRefs = useRef([]);
-  const mouseRef = useRef({ x: 0, y: 0 });
   const [activeTool, setActiveTool] = useState(null);
+  const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 768 : false));
+  const [radius, setRadius] = useState(() => {
+    if (typeof window === 'undefined') return 280;
+    return window.innerWidth < 768 ? 118 : Math.min(window.innerHeight * 0.32, 290);
+  });
+
+  // Exactly max 11 tools
+  const tools = toolsList.slice(0, 11);
+  const count = tools.length;
 
   useEffect(() => {
+    const updateSize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      // Radius: ~30vh desktop (~280px), ~118px mobile to prevent any viewport clipping
+      const r = mobile ? 118 : Math.min(window.innerHeight * 0.32, 290);
+      setRadius(r);
+    };
+
+    updateSize();
+    window.addEventListener('resize', updateSize);
+
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (prefersReducedMotion) return;
+    if (prefersReducedMotion) return () => window.removeEventListener('resize', updateSize);
 
     const ctx = gsap.context(() => {
-      const isMobile = window.innerWidth < 768;
-
       // ScrollTrigger: 250vh of scroll, pinned
       const tl = gsap.timeline({
         scrollTrigger: {
@@ -41,72 +61,64 @@ export default function Scene3ToolsArc() {
         },
       });
 
-      // 1. Arc icons bloom out from head center to their orbital radius
+      // 1. Arc icons bloom in along the semi-circle arc (rapid staggered fade + scale)
       tl.fromTo(
-        iconRefs.current,
+        iconRefs.current.filter(Boolean),
         {
-          scale: 0,
+          scale: 0.3,
           opacity: 0,
-          x: 0,
-          y: 0,
         },
         {
           scale: 1,
           opacity: 1,
-          x: (idx) => {
-            const count = toolsList.length;
-            const r = isMobile ? 210 : 420;
-            const startAngle = -165 * (Math.PI / 180);
-            const endAngle = -15 * (Math.PI / 180);
-            const angle = startAngle + (idx / (count - 1)) * (endAngle - startAngle);
-            return Math.cos(angle) * r;
-          },
-          y: (idx) => {
-            const count = toolsList.length;
-            const r = isMobile ? 210 : 420;
-            const startAngle = -165 * (Math.PI / 180);
-            const endAngle = -15 * (Math.PI / 180);
-            const angle = startAngle + (idx / (count - 1)) * (endAngle - startAngle);
-            return Math.sin(angle) * r;
-          },
-          stagger: 0.04,
-          ease: 'back.out(1.5)',
+          stagger: 0.02,
+          ease: 'back.out(1.6)',
         },
-        0.1
+        0
       );
 
       // 2. Figure settles into clean presentation pose
       tl.fromTo(
         figureRef.current,
-        { scale: 1.1, opacity: 0.8 },
+        { scale: 1.05, opacity: 0.85 },
         { scale: 1.0, opacity: 1, ease: 'power1.out' },
         0
       );
 
-      // 3. Fade out towards next scene at the very end
+      // 3. Fade out towards next scene at the end of the pin
       tl.to(
-        [arcContainerRef.current, figureRef.current],
+        [arcContainerRef.current, figureRef.current].filter(Boolean),
         {
           opacity: 0.1,
-          scale: 0.85,
-          filter: 'blur(8px)',
+          scale: 0.9,
           ease: 'power2.in',
         },
         0.85
       );
+
+      // 4. Subtle idle bobbing for each tool icon (2-3px vertical loop with staggered phases)
+      iconRefs.current.forEach((el, idx) => {
+        if (!el) return;
+        gsap.to(el, {
+          y: '+=3',
+          duration: 2.2 + (idx % 4) * 0.3,
+          yoyo: true,
+          repeat: -1,
+          ease: 'sine.inOut',
+          delay: idx * 0.12,
+        });
+      });
     }, containerRef);
 
     // Mouse parallax for the arc
     const handleMouseMove = (e) => {
-      const { clientX, clientY } = e;
-      const nx = (clientX / window.innerWidth - 0.5) * 2;
-      const ny = (clientY / window.innerHeight - 0.5) * 2;
-      mouseRef.current = { x: nx, y: ny };
+      const nx = (e.clientX / window.innerWidth - 0.5) * 2;
+      const ny = (e.clientY / window.innerHeight - 0.5) * 2;
 
       if (arcContainerRef.current) {
         gsap.to(arcContainerRef.current, {
-          x: nx * 20,
-          y: ny * 15,
+          x: nx * 16,
+          y: ny * 10,
           duration: 0.6,
           ease: 'power2.out',
         });
@@ -117,6 +129,7 @@ export default function Scene3ToolsArc() {
 
     return () => {
       ctx.revert();
+      window.removeEventListener('resize', updateSize);
       window.removeEventListener('mousemove', handleMouseMove);
     };
   }, []);
@@ -139,56 +152,96 @@ export default function Scene3ToolsArc() {
       </div>
 
       {/* Soft Background Radial Flare */}
-      <div className="pointer-events-none absolute w-[550px] h-[550px] rounded-full bg-[#ff5a1f]/10 blur-[140px] opacity-60 z-0 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+      <div className="pointer-events-none absolute w-[500px] h-[500px] rounded-full bg-[#ff5a1f]/10 blur-[130px] opacity-50 z-0 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
 
-      {/* Orbit Anchor (Behind Head) */}
+      {/* Center Orbit & Figure Hierarchy */}
       <div className="relative z-30 w-full h-full flex items-center justify-center pointer-events-none">
-        {/* Arc container (holds all 12 tool tiles) */}
+        {/* Arc container pivot (positioned directly above head at 44% vh) */}
         <div
           ref={arcContainerRef}
-          className="absolute top-[48%] sm:top-[44%] left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-auto"
+          className="absolute top-[44%] sm:top-[42%] left-1/2 z-30 pointer-events-auto"
         >
-          {toolsList.map((tool, idx) => (
-            <div
-              key={tool.name}
-              ref={(el) => (iconRefs.current[idx] = el)}
-              onMouseEnter={() => setActiveTool(tool)}
-              onMouseLeave={() => setActiveTool(null)}
-              className="group absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer pointer-events-auto"
-            >
-              {/* Glass Tile */}
-              <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-b from-neutral-800/90 via-neutral-900/90 to-black/90 border border-white/10 hover:border-[#ff5a1f] hover:bg-[#ff5a1f]/15 shadow-xl backdrop-blur-xl flex items-center justify-center p-2.5 sm:p-3.5 transition-all duration-300 group-hover:scale-125 group-hover:shadow-[0_0_30px_rgba(255,90,31,0.4)] text-neutral-300 group-hover:text-white">
-                <div
-                  className="w-full h-full flex items-center justify-center"
-                  dangerouslySetInnerHTML={{ __html: tool.svg }}
-                />
-              </div>
+          {tools.map((tool, idx) => {
+            const maxAngle = isMobile ? 66 : 75;
+            const angleDeg = -maxAngle + (idx / (count - 1)) * (maxAngle * 2);
+            const angleRad = (angleDeg * Math.PI) / 180;
+            const x = Math.sin(angleRad) * radius;
+            const y = -Math.cos(angleRad) * radius;
 
-              {/* Tooltip on Hover */}
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
-                <div className="px-3 py-1 rounded-full bg-[#050505]/95 border border-[#ff5a1f]/40 shadow-xl backdrop-blur-md flex items-center gap-2">
-                  <span className="text-[11px] font-display font-bold text-white tracking-wide">
-                    {tool.name}
-                  </span>
-                  <span className="text-[9px] font-mono text-[#ff5a1f] uppercase px-1.5 py-0.2 bg-[#ff5a1f]/10 rounded">
-                    {tool.category}
-                  </span>
+            return (
+              <div
+                key={tool.name}
+                ref={(el) => (iconRefs.current[idx] = el)}
+                style={{
+                  transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`,
+                }}
+                onMouseEnter={() => setActiveTool(tool)}
+                onMouseLeave={() => setActiveTool(null)}
+                className="group absolute top-0 left-0 cursor-pointer pointer-events-auto transition-transform duration-300"
+              >
+                {/* Glass Rounded Square (72px desktop / 46px mobile, scale 1.15 on hover) */}
+                <div className="w-[46px] h-[46px] sm:w-[72px] sm:h-[72px] rounded-lg sm:rounded-2xl bg-neutral-900/80 border border-white/12 hover:border-[#ff5a1f]/80 shadow-[0_8px_30px_rgba(0,0,0,0.6)] backdrop-blur-xl flex items-center justify-center p-2.5 sm:p-4 text-neutral-300 hover:text-white transition-all duration-300 group-hover:scale-115 group-hover:shadow-[0_0_28px_rgba(255,90,31,0.4)] group-hover:bg-[#ff5a1f]/15">
+                  <div
+                    className="w-full h-full flex items-center justify-center"
+                    dangerouslySetInnerHTML={{ __html: tool.svg }}
+                  />
+                </div>
+
+                {/* Tooltip on Hover */}
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+                  <div className="px-3 py-1 rounded-full bg-[#050505]/95 border border-[#ff5a1f]/40 shadow-xl backdrop-blur-md flex items-center gap-2">
+                    <span className="text-[11px] font-display font-bold text-white tracking-wide">
+                      {tool.name}
+                    </span>
+                    <span className="text-[9px] font-mono text-[#ff5a1f] uppercase px-1.5 py-0.5 bg-[#ff5a1f]/15 rounded">
+                      {tool.category}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
-        {/* 2. Standing Silhouette Figure Center */}
+        {/* 2. Standing Silhouette Figure Center (Matched to Scene 2 Fix A) */}
         <div
           ref={figureRef}
-          className="relative z-20 h-[68vh] sm:h-[75vh] max-h-[750px] flex items-end justify-center pointer-events-none mt-auto"
+          className="absolute left-1/2 -translate-x-1/2 bottom-0 z-20 h-[74vh] sm:h-[78vh] max-h-[800px] max-w-[85vw] sm:max-w-[36vw] w-auto flex items-end justify-center pointer-events-none"
         >
-          <img
-            src={scenePhotos.standingCutout}
-            alt="Arthanari S"
-            className="h-full w-auto object-contain filter drop-shadow-[0_30px_50px_rgba(0,0,0,0.95)] contrast-110"
-          />
+          {/* Soft Contact Shadow Under Figure */}
+          <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-[80%] h-12 rounded-full bg-black/95 blur-xl pointer-events-none z-10" />
+
+          {/* Outer Vertical Mask: Fades top and bottom with zero hard lines */}
+          <div
+            className="relative h-full w-auto flex items-end justify-center"
+            style={{
+              maskImage: 'linear-gradient(to bottom, transparent 0%, black 12%, black 72%, transparent 98%)',
+              WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 12%, black 72%, transparent 98%)',
+            }}
+          >
+            {/* Inner Horizontal Mask: Fades the sides 12% to prevent any rectangular edges */}
+            <div
+              className="relative h-full w-auto flex items-end justify-center"
+              style={{
+                maskImage: 'linear-gradient(to right, transparent 0%, black 12%, black 88%, transparent 100%)',
+                WebkitMaskImage: 'linear-gradient(to right, transparent 0%, black 12%, black 88%, transparent 100%)',
+              }}
+            >
+              <img
+                src={scenePhotos.standingCutout}
+                alt="Arthanari S"
+                className="h-full w-auto max-w-full object-contain filter drop-shadow-[0_20px_40px_rgba(0,0,0,0.9)] contrast-105 brightness-100"
+              />
+
+              {/* Warm Rim Light */}
+              <div
+                className="absolute inset-0 pointer-events-none opacity-30 mix-blend-screen"
+                style={{
+                  background: 'radial-gradient(ellipse at 50% 20%, rgba(255, 122, 61, 0.6) 0%, transparent 65%)',
+                }}
+              />
+            </div>
+          </div>
         </div>
       </div>
 

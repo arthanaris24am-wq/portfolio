@@ -43,6 +43,7 @@ export default function ScrollExperience() {
       touchMultiplier: 1.5,
     });
     lenisRef.current = lenis;
+    window.__lenis = lenis;
 
     lenis.on('scroll', ScrollTrigger.update);
 
