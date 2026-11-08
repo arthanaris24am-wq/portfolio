@@ -1,23 +1,26 @@
 import { useState } from 'react';
 import IntroSequence from './intro/IntroSequence';
+import ScrollExperience from './scenes/ScrollExperience';
 
 /**
  * Master App Entrypoint:
- * - Mounts the self-contained cinematic intro sequence.
- * - Handles the transition / hand-over to subsequent portfolio sections
- *   when they are added in future iterations.
+ * - Mounts the cinematic intro sequence & hero (UNCHANGED).
+ * - Mounts the scroll-driven 7-scene cinematic experience directly below.
  */
 export default function App() {
   const [introFinished, setIntroFinished] = useState(false);
 
   const handleIntroComplete = () => {
     setIntroFinished(true);
-    // You can trigger subsequent section reveals or route hand-offs here!
   };
 
   return (
-    <div className="w-full h-full min-h-screen bg-[#050505] text-[#ededed]">
+    <div className="w-full min-h-screen bg-[#050505] text-[#ededed]">
+      {/* 1. Cinematic Intro Sequence & Master Hero */}
       <IntroSequence onComplete={handleIntroComplete} />
+
+      {/* 2. Scroll-driven Cinematic Experience */}
+      <ScrollExperience />
     </div>
   );
 }

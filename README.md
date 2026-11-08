@@ -1,20 +1,50 @@
-# Arthanari S — Cinematic Intro Sequence
+# Arthanari S — Developer Portfolio & Cinematic Experience
 
-A cinematic, minimal, and high-performance developer intro animation built with **React, Vite, Tailwind CSS, and GSAP**.
+A cinematic, minimal, and high-performance developer portfolio website built with **React 18, Vite, Tailwind CSS, GSAP (Timeline + ScrollTrigger), and Lenis smooth scroll**.
 
-Engineered as a self-contained component (`src/intro/IntroSequence.jsx`) designed to smoothly hand over to subsequent sections or any next page.
+Features a clock intro sequence morphing into the hero, followed by a **scroll-driven cinematic experience across 7 full-screen scenes** controlled by the scroll wheel like a short film.
 
 ---
 
 ## ⚡ Tech Stack & Architecture
 
 - **Framework**: [React 18](https://react.dev/) + [Vite 6](https://vitejs.dev/)
-- **Animation Engine**: [GSAP](https://gsap.com/) (Timeline, transforms, text scrambling, 60fps)
-- **Styling**: [Tailwind CSS](https://tailwindcss.com/) with pure black `#050505` and metallic liquid chrome gradient
-- **Canvas Systems**: 
-  - **Dotted Halftone Portrait Canvas**: Dynamically samples `/images/me-hero.png`, assembles dots from scattered particles, and reacts to mouse cursor proximity with organic spring repulsion.
-  - **Twinkling Starfield Canvas**: Ultra-lightweight 2D canvas stars and ember specks.
-- **Micro-Interactions**: Custom magnetic dual-ring cursor (auto-disabled on mobile touch).
+- **Smooth Scroll**: [Lenis](https://lenis.darkroom.engineering/) synchronized with `gsap.ticker`
+- **Animation Engine**: [GSAP 3](https://gsap.com/) (Timeline, ScrollTrigger, `scrub: 1`, pinned scenes)
+- **Styling**: [Tailwind CSS](https://tailwindcss.com/) with pure black `#050505`, ember-orange accent `#ff5a1f`, theatrical red in Scene 6, and pure white `#ffffff` in Scene 7
+- **Canvas Systems**:
+  - **Halftone Dotted Portrait**: High-DPI canvas sampling `/images/me-hero.png` with mouse repulsion
+  - **Starfield & Space Warp**: Canvas particles moving toward camera on scroll with glowing neural core
+- **Typography**: Anton, Bebas Neue, Syne, Inter, JetBrains Mono, and Playfair Display (editorial serif)
+- **Performance**: 60fps locked, `will-change: transform`, pixel ratio capped at 2x, responsive for 1920×1080 down to mobile 390×844
+
+---
+
+## 🎬 Cinematic Structure
+
+### Part 1: The Intro & Hero (`src/intro/IntroSequence.jsx`)
+1. **0.0s – 0.8s**: Soft radial glow fades in at center; small white dot appears.
+2. **0.8s – 1.6s**: Thin vertical white bar grows upward from the dot like a clock hand.
+3. **1.6s – 4.0s**: Clock hand sweeps clockwise 360°, unveiling the letters of **ARTHANARI**.
+4. **4.0s – 4.8s**: Anamorphic liquid chrome shine sweeps across the name.
+5. **4.8s – 6.0s**: Matrix-style text scramble morphs ARTHANARI into **PORTFOLIO** (SVG-fit, auto-scaled to viewport).
+6. **6.0s – 7.5s**: Halftone dotted portrait assembles behind the typography, navbar fades in, and interactive cursor enables.
+
+---
+
+### Part 2: Scroll Experience — 7 Scenes (`src/scenes/ScrollExperience.jsx`)
+
+Each scene is pinned for ~200–300vh and driven by smooth scroll wheel scrub:
+
+| # | Scene | Component | Description |
+|---|-------|-----------|-------------|
+| **1** | **3D Card Carousel** | `Scene1Carousel.jsx` | Netflix-style 3D horizontal row of 5 poster cards. As you scroll, the center PORTFOLIO card expands and zooms full-screen. |
+| **2** | **Cinematic Poster** | `Scene2Poster.jsx` | Giant glowing ember sun (`#ff5a1f`) rises behind full-body portrait, multi-layered ground fog drifts with parallax, camera pushes forward. |
+| **3** | **Interactive Tools Arc** | `Scene3ToolsArc.jsx` | Semicircle arc of 12 glass tool cards (Python, PyTorch, React, etc.) floating above the head with floating physics, cursor parallax, and hover category pills. |
+| **4** | **3D Warp Space** | `Scene4ParticleSpace.jsx` | Canvas particle field (~1,500 particles) rushing toward camera, glowing neural crystal core in center, with 4 floating glass skill panels orbiting. |
+| **5** | **Fragmented Face Mosaic** | `Scene5FaceCollage.jsx` | 6 polygon shard face tiles (`face-tiles/1.jpg` to `6.jpg`) tumble and assemble into a cohesive mirror portrait with an anamorphic diagonal light sweep. |
+| **6** | **Editorial Red** | `Scene6EditorialRed.jsx` | Theatrical crimson light beam sweeping from corner, Playfair Display editorial headline with line-by-line mask reveal, dual circular portraits, and 3 pinned horizontal project cards. |
+| **7** | **Minimal White Finish** | `Scene7Finish.jsx` | Clean high-contrast white background switch (`#ffffff`), big minimal black display typography, monochrome portrait rising with slow parallax, interactive 3D project cards, one-click email copying, phone calling, resume download, and "Back to Top" button. |
 
 ---
 
@@ -29,8 +59,7 @@ npm install
 ```bash
 npm run dev
 ```
-Open your browser and navigate to:
-👉 **`http://localhost:5173`**
+Open **`http://localhost:5173`** in your browser.
 
 ### 3. Build for Production
 ```bash
@@ -39,102 +68,113 @@ npm run build
 
 ---
 
-## ✏️ How to Change Name, Photo, and Colour
+## ✏️ How to Customize Text, Photos & Tools
 
-Everything is configured in one single file:
-📁 **`src/data/content.js`**
+Everything in this portfolio is controlled by a **single configuration file**:
+👉 **`src/data/content.js`**
 
+### 1. Changing Your Personal Info
 ```javascript
-export const introConfig = {
-  // Intro Name (ONE word, uppercase)
-  introName: "ARTHANARI",
-  
-  // Final word after text-scramble morph
-  finalWord: "PORTFOLIO",
-  
-  // Subtitle appearing directly below the left edge of PORTFOLIO
-  roleSubtitle: "AI & ML Engineer / Full-Stack Developer",
-  
-  // Accent color (Ember Orange)
-  accentColor: "#ff5a1f",
-  
-  // Cutout Photo path (subject-only with transparent background)
-  heroPhoto: "/images/me-hero-cutout.png",
+export const personalData = {
+  name: "Arthanari S",
+  role: "AI & ML Engineer",
+  tagline: "Engineering intelligent systems with data, vision, and scale.",
+  email: "arthanaris007@gmail.com",
+  phone: "+91 6379001272",
+  github: "https://github.com/arthanaris24am-wq",
+  leetcode: "https://leetcode.com/u/ArthanariS/",
+  linkedin: "https://www.linkedin.com/in/arthanari-s-1ab90a338/",
 };
 ```
 
-### Swapping Your Photo
-1. Save your transparent subject cutout as `/public/images/me-hero-cutout.png`.
-2. The canvas samples only pixels with `alpha > 0.5` to construct the dotted halftone portrait without any background or rectangular edges.
-3. The dots automatically scale to face brightness and react to mouse cursor proximity with spring repulsion.
+### 2. Changing Photos
+Save your images in the `public/images/` directory and update the paths in `src/data/content.js`:
+- Hero halftone photo: `public/images/me-hero.png`
+- Standing cutout (Scene 2 & 3): `public/images/scenes/standing-cutout.png`
+- Face closeup (Scene 5 & 6): `public/images/scenes/face-closeup.jpg`
+- Light portrait (Scene 7): `public/images/scenes/light-portrait.jpg`
+- Face tiles (Scene 5): `public/images/scenes/face-tiles/1.jpg` ... `6.jpg`
+
+> **Note**: Every image component has built-in graceful fallbacks if an asset is missing or loading.
+
+### 3. Adding or Editing Projects
+Edit `projectsList` in `src/data/content.js`:
+```javascript
+export const projectsList = [
+  {
+    id: "ai-expense-tracker",
+    title: "AI Expense Tracker",
+    tagline: "Intelligent Transaction Classification & Spending Analysis",
+    description: "End-to-end intelligent financial management system featuring automated ML transaction classification...",
+    tags: ["Python", "Machine Learning", "Scikit-Learn", "Streamlit", "Pandas"],
+    github: "https://github.com/arthanaris24am-wq",
+    live: "https://github.com/arthanaris24am-wq",
+    image: "/images/projects/expense-tracker.svg",
+    number: "01"
+  },
+  // Add more projects here...
+];
+```
+
+### 4. Updating Tech Stack (Tools Arc)
+Edit `toolsList` in `src/data/content.js`:
+```javascript
+export const toolsList = [
+  {
+    name: "Python",
+    category: "Language",
+    svg: `<svg viewBox="0 0 24 24" fill="currentColor">...</svg>`
+  },
+  // Add up to 12 tools...
+];
+```
 
 ---
 
-## 🖥️ Screen Responsiveness & Auto-Fit Engine
+## 🛠️ How to Add a New Scene
 
-The word size is dynamically computed using a `ResizeObserver` + Canvas measurement algorithm:
-- **Desktop (>= 768px)**: Auto-fits word to **~86%** viewport width, capped at **28vh** height.
-- **Mobile (< 768px)**: Auto-fits word to **~92%** viewport width, capped at **28vh** height.
-- **Zero Horizontal Overflow**: Guaranteed fit across all screens (1920x1080, 1440x900, 1366x768, 390x844 mobile).
-- **Subtitle Alignment**: Mathematically locked to the left margin of the first letter with a dark glass backing.
-
-### Quick State Testing:
-- Visit `http://localhost:5173/?skip=true` to view the final assembled hero state immediately.
-- Visit `http://localhost:5173/?state=name` to view the initial intro name typography state.
-
----
-
-## 🎬 Intro Timeline Breakdown (7.5 Seconds)
-
-The timeline is orchestrated in `src/intro/IntroSequence.jsx` in clearly commented blocks:
-
-| Time | Phase | Description |
-| :--- | :--- | :--- |
-| **0.0 – 0.8s** | **Origin** | A soft radial glow fades in at the center; a small white dot appears and glows. |
-| **0.8 – 1.6s** | **Clock Hand** | A thin vertical white bar extends upward from the dot like a clock hand / exclamation mark `!`. Glow pulses once. |
-| **1.6 – 4.0s** | **Sweep & Release** | The hand rotates clockwise around the dot. Each letter of `ARTHANARI` is thrown from the tip, flies with slight rotation/blur, and settles crisp into position. |
-| **4.0 – 4.8s** | **Hold & Shine** | Clock hand and dot fade out. The assembled name holds as a metallic light-sweep shine glides across the letters. |
-| **4.8 – 6.0s** | **Text-Scramble Morph** | Letters scramble through random glyphs and resolve into `PORTFOLIO`. Role subtitle fades in at bottom-left. |
-| **6.0 – 7.5s** | **Halftone Assembly** | Starfield fades in; halftone portrait particles assemble behind the text. Mouse cursor near the portrait gently repels dots. Navbar slides in from top. |
-
-> **Skip Button**: A minimal *"Skip Intro →"* button is always available at the bottom-right for instant transition to the final state.
-> **Accessibility**: Honors `prefers-reduced-motion` by jumping directly to the final hero state without playing the timeline.
-
----
-
-## 🧩 Where to Add Next Sections (Hand-Over)
-
-The intro sequence is completely self-contained in `src/intro/IntroSequence.jsx`.
-
-In `src/App.jsx`, listen to the `onComplete` callback:
-
+1. **Create the scene component** in `src/scenes/Scene8YourScene.jsx`:
 ```jsx
-import { useState } from 'react';
-import IntroSequence from './intro/IntroSequence';
-// Import your future sections:
-// import About from './sections/About';
-// import Projects from './sections/Projects';
+import { useRef } from 'react';
+import gsap from 'gsap';
+import { useGSAP } from '@gsap/react';
 
-export default function App() {
-  const [introFinished, setIntroFinished] = useState(false);
+export default function Scene8YourScene() {
+  const containerRef = useRef(null);
+  const contentRef = useRef(null);
+
+  useGSAP(() => {
+    gsap.timeline({
+      scrollTrigger: {
+        trigger: containerRef.current,
+        start: 'top top',
+        end: '+=200%',
+        pin: true,
+        scrub: 1,
+      }
+    })
+    .fromTo(contentRef.current, { opacity: 0, scale: 0.9 }, { opacity: 1, scale: 1 });
+  }, { scope: containerRef });
 
   return (
-    <div className="w-full min-h-screen bg-[#050505] text-[#ededed]">
-      {/* 1. Cinematic Intro Sequence */}
-      <IntroSequence onComplete={() => setIntroFinished(true)} />
-
-      {/* 2. Future Sections can be mounted below once intro completes: */}
-      {/* {introFinished && (
-        <main>
-          <About />
-          <Projects />
-          <Contact />
-        </main>
-      )} */}
-    </div>
+    <section ref={containerRef} className="relative w-full h-screen bg-[#050505] text-[#ededed]">
+      <div ref={contentRef} className="flex items-center justify-center h-full">
+        <h2 className="text-4xl font-display">New Scene</h2>
+      </div>
+    </section>
   );
 }
 ```
+
+2. **Mount it in `src/scenes/ScrollExperience.jsx`**:
+```jsx
+import Scene8YourScene from './Scene8YourScene';
+
+// Inside ScrollExperience return:
+<Scene8YourScene />
+```
+
+3. Update the total count in `ScrollExperience.jsx` from `07` to `08`.
 
 ---
 
@@ -142,27 +182,43 @@ export default function App() {
 
 ```
 portfolio/
-├── index.html                           # Font imports (Syne, Anton, Bebas Neue, Inter)
-├── package.json                         # Dependencies & scripts
+├── index.html                               # Fonts & preloads
+├── package.json                             # Dependencies (React, GSAP, Lenis, Tailwind)
 ├── vite.config.js
 ├── tailwind.config.js
 ├── public/
 │   ├── favicon.svg
-│   ├── resume.pdf
+│   ├── resume.pdf                           # Downloadable CV
 │   └── images/
-│       └── me-hero.png                  # Your photo for halftone particle portrait
+│       ├── me-hero.png                      # Hero halftone portrait
+│       ├── projects/                        # Project showcase vectors
+│       └── scenes/                          # Scene cutouts & face tiles
+│           ├── standing-cutout.png
+│           ├── face-closeup.jpg
+│           ├── light-portrait.jpg
+│           └── face-tiles/ (1.jpg - 6.jpg)
 └── src/
     ├── main.jsx
-    ├── App.jsx                          # Main orchestrator & hand-over hook
-    ├── index.css                        # Metallic text gradients & film grain
+    ├── App.jsx                              # Mounts IntroSequence & ScrollExperience
+    ├── index.css                            # Metallic gradients, grain, 3D helpers
     ├── data/
-    │   └── content.js                   # 🌟 Single source of truth (name, photo, colors)
+    │   └── content.js                       # 🌟 SINGLE SOURCE OF TRUTH
     ├── components/
-    │   ├── CustomCursor.jsx             # Magnetic dual-ring cursor
-    │   └── CanvasStars.jsx              # Lightweight starfield canvas
-    └── intro/
-        ├── IntroSequence.jsx            # 🌟 Master 7.5s GSAP timeline
-        └── HalftonePortraitCanvas.jsx   # 🌟 Interactive assembling halftone particle portrait
+    │   ├── CustomCursor.jsx                 # Dual-ring magnetic cursor
+    │   ├── CanvasStars.jsx                  # Twinkling starfield background
+    │   └── TastefulImage.jsx                # Graceful image fallback wrapper
+    ├── intro/
+    │   ├── IntroSequence.jsx                # Clock intro & centered PORTFOLIO hero
+    │   └── HalftonePortraitCanvas.jsx       # Interactive dotted portrait canvas
+    └── scenes/
+        ├── ScrollExperience.jsx             # Lenis + ScrollTrigger orchestrator & HUD
+        ├── Scene1Carousel.jsx               # Netflix 3D poster card carousel
+        ├── Scene2Poster.jsx                 # Rising ember sun & ground fog poster
+        ├── Scene3ToolsArc.jsx               # Semicircle 12-tool glass arc
+        ├── Scene4ParticleSpace.jsx          # 3D warp space & neural crystal
+        ├── Scene5FaceCollage.jsx            # 6-shard face mosaic assembly
+        ├── Scene6EditorialRed.jsx           # Crimson spotlight & horizontal projects
+        └── Scene7Finish.jsx                 # Pure white finish & contact block
 ```
 
 ---
