@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0e0f14"/>
+      <stop offset="100%" stop-color="#060608"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="800" height="500" rx="16" fill="url(#bg3)"/>
+
+  <!-- Window Header -->
+  <rect x="0" y="0" width="800" height="48" fill="#151720" rx="16" />
+  <rect x="0" y="32" width="800" height="16" fill="#151720" />
+  <circle cx="28" cy="24" r="5" fill="#ff5f56"/>
+  <circle cx="46" cy="24" r="5" fill="#ffbd2e"/>
+  <circle cx="64" cy="24" r="5" fill="#27c93f"/>
+  <text x="400" y="28" fill="#71717a" font-family="'JetBrains Mono', monospace" font-size="12" text-anchor="middle">edge-ml // multimodal feature pipeline</text>
+
+  <!-- Pipeline Nodes -->
+  <!-- Node 1: Ingestion -->
+  <rect x="70" y="210" width="160" height="80" rx="10" fill="#191c26" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+  <text x="90" y="240" fill="#ff5a1f" font-family="'JetBrains Mono', monospace" font-size="11">01_INGESTION</text>
+  <text x="90" y="265" fill="#ffffff" font-family="'Syne', sans-serif" font-weight="700" font-size="14">Raw Sensor Stream</text>
+
+  <!-- Arrow 1 -->
+  <path d="M 230 250 L 310 250" stroke="#ff5a1f" stroke-width="2" stroke-dasharray="4 4"/>
+  <polygon points="310,246 318,250 310,254" fill="#ff5a1f"/>
+
+  <!-- Node 2: Embeddings & Vector -->
+  <rect x="320" y="195" width="170" height="110" rx="10" fill="#1c202d" stroke="#ff5a1f" stroke-width="1.5"/>
+  <text x="340" y="225" fill="#ff7a45" font-family="'JetBrains Mono', monospace" font-size="11">02_TRANSFORM</text>
+  <text x="340" y="250" fill="#ffffff" font-family="'Syne', sans-serif" font-weight="700" font-size="14">Latent Embeddings</text>
+  <text x="340" y="275" fill="#94a3b8" font-family="'Inter', sans-serif" font-size="11">PCA + Dimensionality</text>
+
+  <!-- Arrow 2 -->
+  <path d="M 490 250 L 570 250" stroke="#ff5a1f" stroke-width="2" stroke-dasharray="4 4"/>
+  <polygon points="570,246 578,250 570,254" fill="#ff5a1f"/>
+
+  <!-- Node 3: Model Output -->
+  <rect x="580" y="210" width="160" height="80" rx="10" fill="#191c26" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+  <text x="600" y="240" fill="#22c55e" font-family="'JetBrains Mono', monospace" font-size="11">03_INFERENCE</text>
+  <text x="600" y="265" fill="#ffffff" font-family="'Syne', sans-serif" font-weight="700" font-size="14">Automated Label</text>
+
+  <!-- Background telemetry lines -->
+  <rect x="70" y="340" width="670" height="90" rx="8" fill="#11131a" stroke="rgba(255,255,255,0.05)"/>
+  <text x="95" y="370" fill="#71717a" font-family="'JetBrains Mono', monospace" font-size="11">$ python -m pipeline.stream --batch-size=64 --quantization=int8</text>
+  <text x="95" y="395" fill="#22c55e" font-family="'JetBrains Mono', monospace" font-size="11">[OK] Model compiled: PyTorch 2.3 JIT trace loaded successfully (0.002s)</text>
+  <text x="95" y="415" fill="#a1a1aa" font-family="'JetBrains Mono', monospace" font-size="11">[INFO] Accuracy: 98.7% | Zero packet drop detected across 1,000,000 samples</text>
+</svg>
+
