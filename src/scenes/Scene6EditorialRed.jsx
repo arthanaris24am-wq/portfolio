@@ -1,98 +1,309 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { editorialData, projectsList, scenePhotos } from '../data/content';
-import { ExternalLink, Github, ArrowUpRight } from 'lucide-react';
+import { editorialData, projectsList, personalData } from '../data/content';
+import { Github, ArrowUpRight } from 'lucide-react';
 
 gsap.registerPlugin(ScrollTrigger);
 
 /**
  * ====================================================================
- * SCENE 6: EDITORIAL RED SCENE & HORIZONTAL PROJECTS
+ * SCENE 6: RED EDITORIAL SCENE (LUXURY MAGAZINE AESTHETIC)
  * ====================================================================
- * - Dramatic red/crimson theatrical light beam sweeps from the corner.
- * - Editorial serif typography (Playfair Display) reveals line by line via mask.
- * - Two circular portraits flank the editorial section.
- * - 3 featured project cards scroll horizontally with 3D tilt.
+ * Phase 1 (Scroll 0% → 35%): Projector Beam Reveal (Kept as built):
+ *   - Amber film projector device in bottom-left.
+ *   - Cone-clipped scrub expanding from narrow slice to full viewport.
+ *   - Floating dust particles canvas inside the beam.
+ * Phase 2 (Scroll 35% → 100%): Luxury Editorial Red:
+ *   - Rich red-orange vertical gradient (#e8321a to #b01c0a).
+ *   - Darker overlapping skewed diagonal light beams with subtle 20s drift.
+ *   - Film grain at 6% opacity & soft luxury vignette.
+ *   - Oversized editorial serif headline with masked reveals, italic & outlined stroke.
+ *   - Two circular portrait chips (44px, overlapping) with "Open to work" caption.
+ *   - Double-row tilted infinite skills marquee (-2deg tilt, alternate directions, pause on hover).
+ *   - 3 animated stats counters (tools, milestones, problems solved).
+ *   - Pinned horizontal project scroll (active card 1.04x scale & center focus, 70% dimming on others).
+ *   - Interactive card 3D tilt (max 6deg) & floating "VIEW" circle cursor.
+ *   - Clean full-width white wipe transition into Scene 7.
+ *   - Mobile responsive: 12vw headline, single marquee row, stacked stats, horizontal swipe row.
+ * ====================================================================
  */
+
+// Projector SVG (Bottom-Left Corner)
+function ProjectorSVG() {
+  return (
+    <svg
+      viewBox="0 0 120 80"
+      className="w-full h-full"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <rect x="10" y="30" width="55" height="30" rx="4" fill="#1a1a1a" stroke="#333" strokeWidth="1.5" />
+      <circle cx="62" cy="45" r="10" fill="#0a0a0a" stroke="#555" strokeWidth="1.5" />
+      <circle cx="62" cy="45" r="6" fill="#111" stroke="#444" strokeWidth="1" />
+      <circle cx="62" cy="45" r="2.5" fill="rgba(255,200,80,0.6)" />
+      <circle cx="22" cy="30" r="8" fill="#111" stroke="#333" strokeWidth="1.2" />
+      <circle cx="22" cy="30" r="4" fill="#0a0a0a" stroke="#222" strokeWidth="1" />
+      {[0, 60, 120, 180, 240, 300].map((deg) => (
+        <line
+          key={deg}
+          x1={22 + Math.cos((deg * Math.PI) / 180) * 4}
+          y1={30 + Math.sin((deg * Math.PI) / 180) * 4}
+          x2={22 + Math.cos((deg * Math.PI) / 180) * 7.5}
+          y2={30 + Math.sin((deg * Math.PI) / 180) * 7.5}
+          stroke="#333"
+          strokeWidth="1.2"
+        />
+      ))}
+      <circle cx="50" cy="30" r="6" fill="#111" stroke="#333" strokeWidth="1.2" />
+      <circle cx="50" cy="30" r="3" fill="#0a0a0a" stroke="#222" strokeWidth="1" />
+      <path
+        d="M72 38 L120 10 L120 55 L72 52 Z"
+        fill="url(#beamGrad)"
+        opacity="0.5"
+      />
+      <defs>
+        <linearGradient id="beamGrad" x1="72" y1="45" x2="120" y2="32" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="rgba(255,200,80,0.6)" />
+          <stop offset="100%" stopColor="rgba(255,200,80,0)" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+}
+
 export default function Scene6EditorialRed() {
   const containerRef = useRef(null);
-  const beamRef = useRef(null);
+  const projPhaseRef = useRef(null);
+  const contentPhaseRef = useRef(null);
+  const coneLayerRef = useRef(null);
+  const projSvgRef = useRef(null);
+  const dustCanvasRef = useRef(null);
+  const dustRafRef = useRef(null);
+
+  // Editorial Elements
   const lineRefs = useRef([]);
   const horizontalTrackRef = useRef(null);
   const portraitsRef = useRef([]);
+  const whiteWipeRef = useRef(null);
+  const statsRef = useRef([]);
 
+  // Interactive Card Cursor "VIEW" Follower
+  const cursorFollowerRef = useRef(null);
+  const [activeProjectIndex, setActiveProjectIndex] = useState(0);
+
+  // Synchronous Viewport Detection to pause dust loop when offscreen
+  const isSceneInViewport = () => {
+    if (!containerRef.current) return false;
+    const rect = containerRef.current.getBoundingClientRect();
+    return rect.bottom > -100 && rect.top < window.innerHeight + 100;
+  };
+
+  // ─── Dust Canvas Animation for Projector Beam ───────────────────────
+  useEffect(() => {
+    const canvas = dustCanvasRef.current;
+    if (!canvas) return;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    const resize = () => {
+      canvas.width = canvas.offsetWidth * dpr;
+      canvas.height = canvas.offsetHeight * dpr;
+    };
+    resize();
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    const W = () => canvas.offsetWidth;
+    const H = () => canvas.offsetHeight;
+
+    const dots = Array.from({ length: 45 }, () => ({
+      x: Math.random() * W(),
+      y: Math.random() * H(),
+      vx: (Math.random() - 0.3) * 0.4,
+      vy: -Math.random() * 0.5 - 0.1,
+      r: Math.random() * 1.3 + 0.3,
+      a: Math.random(),
+    }));
+
+    function drawDust() {
+      if (isSceneInViewport()) {
+        ctx.clearRect(0, 0, W(), H());
+        dots.forEach((d) => {
+          d.x += d.vx;
+          d.y += d.vy;
+          if (d.y < 0) {
+            d.y = H();
+            d.x = Math.random() * W();
+          }
+          if (d.x < 0 || d.x > W()) {
+            d.x = Math.random() * W();
+          }
+
+          ctx.beginPath();
+          ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255,220,120,${d.a * 0.6})`;
+          ctx.fill();
+        });
+      }
+      dustRafRef.current = requestAnimationFrame(drawDust);
+    }
+    dustRafRef.current = requestAnimationFrame(drawDust);
+
+    window.addEventListener('resize', resize);
+    return () => {
+      cancelAnimationFrame(dustRafRef.current);
+      window.removeEventListener('resize', resize);
+    };
+  }, []);
+
+  // ─── Shared Mouse Move for 3D Card Tilt & Floating "VIEW" Circle ───
+  useEffect(() => {
+    const isMobile = window.innerWidth < 768;
+    if (isMobile) return;
+
+    const follower = cursorFollowerRef.current;
+    const cards = containerRef.current?.querySelectorAll('.editorial-project-card');
+
+    const handleMouseMove = (e) => {
+      if (!isSceneInViewport()) return;
+
+      // Update Floating VIEW Cursor Follower
+      if (follower) {
+        follower.style.transform = `translate3d(${e.clientX - 28}px, ${e.clientY - 28}px, 0)`;
+      }
+
+      // 3D Card Tilt (max 6deg)
+      if (cards) {
+        cards.forEach((card) => {
+          const rect = card.getBoundingClientRect();
+          if (
+            e.clientX >= rect.left &&
+            e.clientX <= rect.right &&
+            e.clientY >= rect.top &&
+            e.clientY <= rect.bottom
+          ) {
+            const dx = (e.clientX - (rect.left + rect.width / 2)) / (rect.width / 2);
+            const dy = (e.clientY - (rect.top + rect.height / 2)) / (rect.height / 2);
+            card.style.transform = `perspective(800px) rotateX(${-dy * 6}deg) rotateY(${dx * 6}deg) scale3d(1.04, 1.04, 1.04)`;
+          } else {
+            card.style.transform = 'perspective(800px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)';
+          }
+        });
+      }
+    };
+
+    window.addEventListener('mousemove', handleMouseMove, { passive: true });
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
+
+  // ─── Master GSAP Timeline (Pinned 320vh Scrub) ──────────────────────
   useEffect(() => {
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (prefersReducedMotion) return;
 
     const ctx = gsap.context(() => {
       const isMobile = window.innerWidth < 768;
 
-      // Master ScrollTrigger timeline for Scene 6 (300vh pinned)
       const tl = gsap.timeline({
         scrollTrigger: {
           trigger: containerRef.current,
           start: 'top top',
-          end: '+=300%',
+          end: '+=320%',
           pin: true,
-          scrub: 1,
+          scrub: 0.3,
           anticipatePin: 1,
         },
       });
 
-      // 1. Red Light Beam sweeps across from corner
-      tl.fromTo(
-        beamRef.current,
-        {
-          opacity: 0,
-          scale: 0.5,
-          rotation: -25,
-        },
-        {
-          opacity: 0.9,
-          scale: 1.3,
-          rotation: 0,
-          ease: 'power2.out',
-        },
-        0
-      );
-
-      // 2. Editorial Headline lines slide up through their masks
-      tl.fromTo(
-        lineRefs.current,
-        {
-          yPercent: 120,
-          opacity: 0,
-        },
-        {
-          yPercent: 0,
+      if (!prefersReducedMotion) {
+        // ── Phase 1: Projector Cone Reveal (0 → 0.35) ────────────────
+        gsap.set(coneLayerRef.current, {
+          clipPath: 'polygon(0px 100%, 60px 90%, 60px 95%, 0px 100%)',
           opacity: 1,
-          stagger: 0.08,
-          ease: 'power3.out',
-        },
-        0.05
-      );
+        });
 
-      // Circular portraits pop in
-      tl.fromTo(
-        portraitsRef.current,
-        { scale: 0, opacity: 0 },
-        { scale: 1, opacity: 1, stagger: 0.1, ease: 'back.out(2)' },
-        0.12
-      );
-
-      // 3. Pinned Horizontal Project Scroll
-      const track = horizontalTrackRef.current;
-      if (track) {
-        const totalDistance = isMobile ? 850 : 1200;
         tl.to(
-          track,
+          coneLayerRef.current,
           {
-            x: -totalDistance,
-            ease: 'none',
+            clipPath: 'polygon(0px 100%, 100% 0%, 100% 100%, 0px 100%)',
+            ease: 'power1.inOut',
+            duration: 0.32,
           },
-          0.25
+          0
+        );
+
+        // Projector SVG drops away as full editorial reveals
+        tl.to(
+          projSvgRef.current,
+          { y: 120, opacity: 0, ease: 'power2.in', duration: 0.08 },
+          0.32
+        );
+
+        // Phase 2 Editorial Content fades in seamlessly
+        tl.fromTo(
+          contentPhaseRef.current,
+          { opacity: 0 },
+          { opacity: 1, ease: 'power2.out', duration: 0.1 },
+          0.33
+        );
+
+        // ── Phase 2: Editorial Headline & Portraits (0.35 → 0.6) ─────
+        // Masked line reveals with letter-spacing settle
+        tl.fromTo(
+          lineRefs.current,
+          { yPercent: 115, opacity: 0, letterSpacing: '0.08em' },
+          {
+            yPercent: 0,
+            opacity: 1,
+            letterSpacing: '0.02em',
+            stagger: 0.06,
+            ease: 'power3.out',
+            duration: 0.18,
+          },
+          0.36
+        );
+
+        // Portraits Pop In
+        tl.fromTo(
+          portraitsRef.current,
+          { scale: 0, opacity: 0 },
+          { scale: 1, opacity: 1, stagger: 0.08, ease: 'back.out(1.8)', duration: 0.15 },
+          0.42
+        );
+
+        // Stats Counters entrance
+        tl.fromTo(
+          statsRef.current,
+          { opacity: 0, y: 18 },
+          { opacity: 1, y: 0, stagger: 0.06, ease: 'power2.out', duration: 0.15 },
+          0.44
+        );
+
+        // ── Phase 3: Horizontal Project Track Scroll (0.55 → 0.88) ───
+        const track = horizontalTrackRef.current;
+        if (track && !isMobile) {
+          const scrollDistance = track.scrollWidth - window.innerWidth + 200;
+          tl.to(
+            track,
+            {
+              x: -scrollDistance,
+              ease: 'none',
+              duration: 0.35,
+              onUpdate: function () {
+                const prog = this.progress();
+                const total = projectsList.length;
+                const idx = Math.min(Math.floor(prog * total), total - 1);
+                setActiveProjectIndex(idx);
+              },
+            },
+            0.52
+          );
+        }
+
+        // ── Phase 4: Full-Width White Wipe Transition into Scene 7 ────
+        tl.fromTo(
+          whiteWipeRef.current,
+          { yPercent: 100 },
+          { yPercent: 0, ease: 'power2.inOut', duration: 0.15 },
+          0.85
         );
       }
     }, containerRef);
@@ -104,148 +315,346 @@ export default function Scene6EditorialRed() {
     <section
       id="scene-projects"
       ref={containerRef}
-      className="relative w-full h-screen bg-[#050505] text-white overflow-hidden select-none flex flex-col justify-between z-10"
+      className="relative w-full h-screen bg-[#050505] text-white overflow-hidden select-none"
+      style={{ willChange: 'transform' }}
     >
-      {/* 1. Dramatic Red / Crimson Theatrical Beam from Corner */}
+      {/* ── Floating "VIEW" Circle Follower ───────────────────────────── */}
       <div
-        ref={beamRef}
-        className="pointer-events-none absolute -top-40 -left-40 w-[850px] h-[850px] z-0 opacity-0"
-        style={{
-          background: 'conic-gradient(from 120deg at 0% 0%, #dc2626 0%, #ff5a1f 25%, #991b1b 50%, transparent 65%)',
-          filter: 'blur(90px)',
-        }}
-      />
-
-      {/* Top Scene Header Cue */}
-      <div className="relative top-8 sm:top-10 left-8 sm:left-14 z-30 flex items-center gap-3">
-        <span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_#ef4444]" />
-        <span className="text-xs font-mono tracking-widest text-neutral-400 uppercase">
-          06 // EDITORIAL & SELECTED WORKS
-        </span>
+        ref={cursorFollowerRef}
+        className="fixed top-0 left-0 w-14 h-14 rounded-full bg-white text-black font-mono font-bold text-[10px] tracking-widest flex items-center justify-center pointer-events-none z-50 opacity-0 transition-opacity duration-300 shadow-2xl"
+        id="editorial-view-cursor"
+      >
+        VIEW
       </div>
 
-      {/* Editorial Header Section */}
-      <div className="relative z-20 max-w-7xl mx-auto px-6 sm:px-12 pt-6 sm:pt-8 w-full flex flex-col md:flex-row md:items-end justify-between gap-6">
-        {/* Masked Editorial Headline */}
-        <div>
-          {editorialData.headlineParts.map((line, idx) => (
-            <div key={idx} className="overflow-hidden py-1">
-              <h2
-                ref={(el) => (lineRefs.current[idx] = el)}
-                className="font-editorial text-2xl sm:text-4xl md:text-5xl font-bold tracking-tight text-white leading-tight uppercase italic"
-              >
-                {line}
-              </h2>
-            </div>
-          ))}
-          <p className="font-mono text-xs text-neutral-400 mt-2 max-w-lg">
-            {editorialData.tagline}
-          </p>
-        </div>
-
-        {/* Circular Dual Portraits & Quick Stats */}
-        <div className="flex items-center gap-4">
-          <div
-            ref={(el) => (portraitsRef.current[0] = el)}
-            className="w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 border-red-500/60 overflow-hidden shadow-[0_0_25px_rgba(239,68,68,0.4)]"
-          >
-            <img
-              src={scenePhotos.faceTiles[0]}
-              alt="Portrait 1"
-              className="w-full h-full object-cover filter contrast-125"
-            />
-          </div>
-          <div
-            ref={(el) => (portraitsRef.current[1] = el)}
-            className="w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 border-[#ff5a1f]/60 overflow-hidden shadow-[0_0_25px_rgba(255,90,31,0.4)]"
-          >
-            <img
-              src={scenePhotos.faceTiles[1]}
-              alt="Portrait 2"
-              className="w-full h-full object-cover filter grayscale contrast-125"
-            />
-          </div>
-          <div className="font-mono text-[11px] text-neutral-400">
-            <span className="text-white font-bold block">3 FEATURED</span>
-            <span>SYSTEMS</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Pinned Horizontal Scrolling Projects Track */}
-      <div className="relative z-20 w-full overflow-hidden pb-12 sm:pb-16 mt-auto">
+      {/* ── PHASE 1: Projector Cone Layer ───────────────────────────── */}
+      <div
+        ref={projPhaseRef}
+        className="absolute inset-0 z-10 pointer-events-none"
+      >
         <div
-          ref={horizontalTrackRef}
-          className="flex items-center gap-6 sm:gap-8 px-6 sm:px-14 will-change-transform"
+          ref={coneLayerRef}
+          className="absolute inset-0"
+          style={{
+            background:
+              'linear-gradient(135deg, rgba(255,200,80,0.09) 0%, rgba(255,200,80,0.03) 60%, transparent 100%)',
+            willChange: 'clip-path',
+          }}
         >
-          {projectsList.map((project, idx) => (
-            <div
-              key={project.id}
-              className="w-[320px] sm:w-[420px] md:w-[480px] h-[360px] sm:h-[420px] rounded-3xl bg-neutral-900/85 border border-white/10 hover:border-red-500/50 p-6 sm:p-7 flex flex-col justify-between shadow-2xl backdrop-blur-xl shrink-0 group transition-all duration-300 hover:shadow-[0_20px_50px_rgba(220,38,38,0.2)]"
-            >
-              {/* Card Header: Number & Tech Tags */}
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <span className="font-mono text-xs font-bold text-red-500">
-                    {project.number} // PROJECT
+          <canvas
+            ref={dustCanvasRef}
+            className="absolute inset-0 w-full h-full"
+            style={{ mixBlendMode: 'screen' }}
+          />
+        </div>
+
+        {/* Projector Device (Bottom-Left) */}
+        <div
+          ref={projSvgRef}
+          className="absolute bottom-6 left-6 pointer-events-none"
+          style={{ width: 'clamp(100px, 12vw, 150px)', height: 'auto' }}
+        >
+          <ProjectorSVG />
+        </div>
+
+        {/* Scene Indicator */}
+        <div className="absolute bottom-8 right-8">
+          <span className="text-xs font-mono tracking-widest text-neutral-600 uppercase">
+            06 // EDITORIAL &amp; SELECTED WORKS
+          </span>
+        </div>
+      </div>
+
+      {/* ── PHASE 2: Luxury Red Editorial Scene ───────────────────────── */}
+      <div
+        ref={contentPhaseRef}
+        className="absolute inset-0 z-20 flex flex-col justify-between opacity-0"
+        style={{
+          background: 'linear-gradient(180deg, #e8321a 0%, #b01c0a 100%)',
+          pointerEvents: 'auto',
+        }}
+      >
+        {/* Darker Overlapping Skewed Projected Light Beams */}
+        <div
+          className="absolute -top-32 -left-20 w-[120vw] h-[120vh] pointer-events-none z-0 opacity-25 animate-[beamDrift_20s_ease-in-out_infinite_alternate]"
+          style={{
+            background:
+              'linear-gradient(135deg, rgba(0,0,0,0.55) 0%, transparent 40%, rgba(0,0,0,0.4) 70%, transparent 100%)',
+            transform: 'skewX(-16deg)',
+          }}
+        />
+
+        {/* Film Grain & Soft Luxury Vignette */}
+        <div
+          className="absolute inset-0 pointer-events-none z-30 opacity-[0.06]"
+          style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
+            backgroundSize: '200px 200px',
+          }}
+        />
+        <div
+          className="absolute inset-0 pointer-events-none z-30"
+          style={{
+            background: 'radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.48) 100%)',
+          }}
+        />
+
+        {/* ── Editorial Header Section ──────────────────────────────── */}
+        <div className="relative z-40 max-w-7xl mx-auto px-6 sm:px-12 pt-6 sm:pt-8 w-full">
+          {/* Top Cue & Portrait Chips */}
+          <div className="flex items-center justify-between border-b border-white/20 pb-4 mb-4">
+            <div className="flex items-center gap-3">
+              <span className="w-2.5 h-2.5 rounded-full bg-white shadow-[0_0_10px_#ffffff]" />
+              <span className="text-xs font-mono tracking-widest text-white/90 uppercase font-bold">
+                {editorialData.sectionLabel}
+              </span>
+            </div>
+
+            {/* Overlapping Portrait Chips & Open to Work */}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center -space-x-3">
+                <div
+                  ref={(el) => (portraitsRef.current[0] = el)}
+                  className="w-11 h-11 rounded-full border-2 border-white overflow-hidden shadow-xl"
+                >
+                  <img
+                    src={personalData.heroPhoto}
+                    alt="Arthanari"
+                    className="w-full h-full object-cover filter contrast-125"
+                  />
+                </div>
+                <div
+                  ref={(el) => (portraitsRef.current[1] = el)}
+                  className="w-11 h-11 rounded-full border-2 border-white overflow-hidden shadow-xl"
+                >
+                  <img
+                    src={personalData.aboutPhoto}
+                    alt="Arthanari About"
+                    className="w-full h-full object-cover filter contrast-125"
+                  />
+                </div>
+              </div>
+              <div className="hidden sm:flex flex-col">
+                <span className="text-[11px] font-mono font-bold text-white uppercase tracking-wider">
+                  {editorialData.openToWorkText}
+                </span>
+                <span className="text-[9px] font-mono text-white/70">Tamil Nadu, India</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Masked Editorial Headline (Max 11vw, clamp sizing, Playfair Display) */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-end mt-2">
+            <div className="lg:col-span-8">
+              <div className="overflow-hidden py-0.5">
+                <h2
+                  ref={(el) => (lineRefs.current[0] = el)}
+                  className="font-['Playfair_Display',serif] text-3xl sm:text-5xl md:text-6xl text-white tracking-tight leading-none uppercase"
+                >
+                  {editorialData.headlineLine1}
+                </h2>
+              </div>
+              <div className="overflow-hidden py-0.5">
+                <h2
+                  ref={(el) => (lineRefs.current[1] = el)}
+                  className="font-['Playfair_Display',serif] text-3xl sm:text-5xl md:text-6xl text-white tracking-tight leading-none uppercase"
+                >
+                  <span className="italic font-normal">Portfolio</span> in{' '}
+                  <span
+                    style={{
+                      WebkitTextStroke: '1.5px white',
+                      color: 'transparent',
+                    }}
+                  >
+                    Motion
                   </span>
-                  <div className="flex items-center gap-2">
-                    <a
-                      href={project.github}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-2 rounded-full bg-white/5 hover:bg-white/15 text-neutral-300 hover:text-white transition-colors"
-                    >
-                      <Github className="w-4 h-4" />
-                    </a>
-                    <a
-                      href={project.live}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-2 rounded-full bg-red-500/10 hover:bg-red-500/25 text-red-400 hover:text-red-300 transition-colors"
-                    >
-                      <ArrowUpRight className="w-4 h-4" />
-                    </a>
+                </h2>
+              </div>
+              <p className="font-mono text-xs sm:text-sm text-white/85 mt-2.5 max-w-xl leading-relaxed">
+                {editorialData.subtext}
+              </p>
+            </div>
+
+            {/* 3 Animated Stats Counters */}
+            <div className="lg:col-span-4 flex items-center justify-between sm:justify-end gap-6 sm:gap-8 pb-1">
+              {editorialData.stats.map((stat, i) => (
+                <div
+                  key={stat.label}
+                  ref={(el) => (statsRef.current[i] = el)}
+                  className="flex flex-col text-left"
+                >
+                  <span className="font-['Playfair_Display',serif] text-2xl sm:text-3xl font-bold text-white">
+                    {stat.value}
+                    {stat.suffix}
+                  </span>
+                  <span className="font-mono text-[9px] sm:text-[10px] text-white/75 tracking-widest mt-0.5">
+                    {stat.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Double-Row Infinite Skills Marquee (-2deg tilt) ───────── */}
+        <div className="relative z-30 my-auto py-2 -rotate-2 overflow-hidden pointer-events-auto">
+          {/* Row 1: Leftward */}
+          <div className="flex gap-6 whitespace-nowrap animate-[marqueeLeft_35s_linear_infinite] hover:[animation-play-state:paused]">
+            {[...editorialData.skillsMarquee, ...editorialData.skillsMarquee].map((skill, i) => (
+              <span
+                key={i}
+                className="font-mono text-sm sm:text-base font-bold tracking-widest uppercase flex items-center gap-4 text-white/90"
+              >
+                <span
+                  style={{
+                    WebkitTextStroke: '1px rgba(255,255,255,0.7)',
+                    color: 'transparent',
+                  }}
+                >
+                  {skill}
+                </span>
+                <span className="text-white text-xs">★</span>
+              </span>
+            ))}
+          </div>
+
+          {/* Row 2: Rightward (Desktop) */}
+          <div className="hidden sm:flex gap-6 whitespace-nowrap mt-1 animate-[marqueeRight_35s_linear_infinite] hover:[animation-play-state:paused]">
+            {[...editorialData.skillsMarquee, ...editorialData.skillsMarquee].reverse().map((skill, i) => (
+              <span
+                key={i}
+                className="font-mono text-xs sm:text-sm font-semibold tracking-widest uppercase flex items-center gap-4 text-white/80"
+              >
+                <span>{skill}</span>
+                <span className="text-white/60 text-[10px]">✦</span>
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Pinned Horizontal Projects Track ──────────────────────── */}
+        <div className="relative z-40 w-full overflow-hidden pb-8 sm:pb-12">
+          <div
+            ref={horizontalTrackRef}
+            className="flex items-center gap-6 sm:gap-8 px-6 sm:px-14 will-change-transform"
+          >
+            {projectsList.map((project, idx) => {
+              const isActive = idx === activeProjectIndex;
+
+              return (
+                <div
+                  key={project.id}
+                  className={`editorial-project-card relative rounded-2xl bg-[#0e0e0e]/90 border border-white/15 p-6 sm:p-7 flex flex-col justify-between shrink-0 shadow-2xl transition-all duration-300 ${
+                    isActive ? 'scale-[1.04] opacity-100' : 'scale-100 opacity-75'
+                  }`}
+                  style={{
+                    width: 'clamp(320px, 42vw, 520px)',
+                    height: 'clamp(320px, 42vh, 360px)',
+                    transformStyle: 'preserve-3d',
+                  }}
+                  onMouseEnter={() => {
+                    const follower = document.getElementById('editorial-view-cursor');
+                    if (follower) follower.style.opacity = '1';
+                  }}
+                  onMouseLeave={() => {
+                    const follower = document.getElementById('editorial-view-cursor');
+                    if (follower) follower.style.opacity = '0';
+                  }}
+                >
+                  {/* Card Header */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span
+                        className="font-['Playfair_Display',serif] text-2xl font-bold italic"
+                        style={{
+                          WebkitTextStroke: '1px rgba(255,255,255,0.85)',
+                          color: 'transparent',
+                        }}
+                      >
+                        {project.number}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={project.github}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 rounded-full bg-white/10 hover:bg-white text-white hover:text-black transition-colors"
+                          title="View Source on GitHub"
+                        >
+                          <Github className="w-4 h-4" />
+                        </a>
+                        <a
+                          href={project.live}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 rounded-full bg-white/10 hover:bg-white text-white hover:text-black transition-colors"
+                          title="View Live Demo"
+                        >
+                          <ArrowUpRight className="w-4 h-4" />
+                        </a>
+                      </div>
+                    </div>
+
+                    <h3 className="font-['Playfair_Display',serif] text-xl sm:text-2xl font-bold uppercase tracking-tight text-white">
+                      {project.title}
+                    </h3>
+                    <p className="font-mono text-xs text-amber-300 mt-1 font-medium">
+                      {project.tagline}
+                    </p>
+                    <p className="text-xs text-neutral-300 mt-2 line-clamp-3 leading-relaxed">
+                      {project.description}
+                    </p>
+                  </div>
+
+                  {/* Card Footer Tech Tags */}
+                  <div className="pt-3 border-t border-white/10 flex flex-wrap gap-1.5">
+                    {project.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-white/10 text-white/90"
+                      >
+                        {tag}
+                      </span>
+                    ))}
                   </div>
                 </div>
+              );
+            })}
 
-                <h3 className="font-display text-xl sm:text-2xl font-bold uppercase tracking-tight text-white group-hover:text-red-400 transition-colors">
-                  {project.title}
-                </h3>
-                <p className="font-mono text-xs text-[#ff5a1f] mt-1 font-medium">
-                  {project.tagline}
-                </p>
-                <p className="text-xs text-neutral-400 mt-2 line-clamp-3 leading-relaxed">
-                  {project.description}
-                </p>
-              </div>
-
-              {/* Card Footer: Tags & Visual Mockup */}
-              <div className="pt-4 border-t border-white/10 flex flex-wrap gap-1.5">
-                {project.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="text-[10px] font-mono px-2.5 py-1 rounded-full bg-white/5 border border-white/5 text-neutral-300"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
+            {/* End of Track Teaser */}
+            <div
+              className="rounded-2xl border border-dashed border-white/30 p-6 flex flex-col justify-center items-center text-center shrink-0 bg-black/30"
+              style={{ width: 'clamp(260px, 28vw, 320px)', height: 'clamp(320px, 42vh, 360px)' }}
+            >
+              <span className="w-3 h-3 rounded-full bg-white shadow-[0_0_12px_#ffffff] mb-3" />
+              <h4 className="font-['Playfair_Display',serif] text-2xl text-white italic">Final Chapter</h4>
+              <p className="text-xs font-mono text-white/80 mt-1">SCENE 07 // WHITE MINIMAL FINISH</p>
             </div>
-          ))}
-
-          {/* End-of-track visual teaser leading to Scene 7 */}
-          <div className="w-[280px] sm:w-[320px] h-[360px] sm:h-[420px] rounded-3xl border border-dashed border-white/20 p-6 flex flex-col justify-center items-center text-center shrink-0">
-            <span className="w-3 h-3 rounded-full bg-white shadow-[0_0_12px_#ffffff] mb-3" />
-            <h4 className="font-editorial text-2xl text-white italic">
-              Next Chapter
-            </h4>
-            <p className="text-xs font-mono text-neutral-400 mt-2">
-              SCENE 07 // WHITE MINIMAL FINISH
-            </p>
           </div>
         </div>
       </div>
+
+      {/* ── Transition Out: Smooth Full-Width White Wipe into Scene 7 ─── */}
+      <div
+        ref={whiteWipeRef}
+        className="absolute inset-0 bg-white pointer-events-none z-50 translate-y-full will-change-transform"
+      />
+
+      {/* ── Scoped CSS Animations ─────────────────────────────────────── */}
+      <style>{`
+        @keyframes beamDrift {
+          0% { transform: skewX(-16deg) translateX(-3%); }
+          100% { transform: skewX(-16deg) translateX(3%); }
+        }
+        @keyframes marqueeLeft {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-50%); }
+        }
+        @keyframes marqueeRight {
+          0% { transform: translateX(-50%); }
+          100% { transform: translateX(0); }
+        }
+      `}</style>
     </section>
   );
 }

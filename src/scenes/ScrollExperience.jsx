@@ -1,44 +1,49 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useRef, memo } from 'react';
 import Lenis from 'lenis';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import Scene1Carousel from './Scene1Carousel';
-import Scene2Poster from './Scene2Poster';
-import Scene3ToolsArc from './Scene3ToolsArc';
-import Scene4ParticleSpace from './Scene4ParticleSpace';
-import Scene5FaceCollage from './Scene5FaceCollage';
-import Scene6EditorialRed from './Scene6EditorialRed';
-import Scene7Finish from './Scene7Finish';
+import Scene1CarouselComponent from './Scene1Carousel';
+import Scene2PosterComponent from './Scene2Poster';
+import Scene3ToolsArcComponent from './Scene3ToolsArc';
+import Scene4ParticleSpaceComponent from './Scene4ParticleSpace';
+import Scene5FaceCollageComponent from './Scene5FaceCollage';
+import Scene6EditorialRedComponent from './Scene6EditorialRed';
+import Scene7FinishComponent from './Scene7Finish';
 
 gsap.registerPlugin(ScrollTrigger);
+
+// Memoized Scene Components to avoid any React re-renders on scroll
+const Scene1Carousel = memo(Scene1CarouselComponent);
+const Scene2Poster = memo(Scene2PosterComponent);
+const Scene3ToolsArc = memo(Scene3ToolsArcComponent);
+const Scene4ParticleSpace = memo(Scene4ParticleSpaceComponent);
+const Scene5FaceCollage = memo(Scene5FaceCollageComponent);
+const Scene6EditorialRed = memo(Scene6EditorialRedComponent);
+const Scene7Finish = memo(Scene7FinishComponent);
 
 /**
  * ====================================================================
  * SCROLL EXPERIENCE ORCHESTRATOR (7 FULL-SCREEN SCENES)
  * ====================================================================
- * - Coordinates Lenis smooth scrolling with GSAP ScrollTrigger ticker.
- * - Handles fixed global overlays:
- *   1. Thin top scroll-progress indicator line with ember accent.
- *   2. Bottom-left minimal scene counter ("01 / 07" through "07 / 07").
- * - Connects existing hero navbar links to smooth-scroll down to scenes:
- *   - ABOUT    -> Scene 2 (Poster)
- *   - SKILLS   -> Scene 3 (Tools Arc)
- *   - PROJECTS -> Scene 6 (Editorial Red Projects)
- *   - PROFILES / CONTACT -> Scene 7 (White Minimal Finish)
- * - Mounts all 7 scenes in order below the hero.
+ * High-Performance Smooth Scrolling:
+ * - Exactly ONE Lenis instance synced directly to gsap.ticker.
+ * - ZERO React setState calls during scroll (direct DOM updates).
+ * - Debounced ScrollTrigger refresh on resize (250ms).
+ * - CSS containment (contain: layout paint) on all scenes.
+ * ====================================================================
  */
-export default function ScrollExperience() {
-  const [currentScene, setCurrentScene] = useState(1);
-  const [scrollProgress, setScrollProgress] = useState(0);
+function ScrollExperience() {
+  const progressBarRef = useRef(null);
+  const sceneCounterRef = useRef(null);
   const lenisRef = useRef(null);
 
   useEffect(() => {
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    // 1. Initialize Lenis Smooth Scroll
+    // 1. Initialize Single Lenis Smooth Scroll
     const lenis = new Lenis({
-      duration: 1.2,
-      easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+      duration: 1.1,
+      lerp: 0.09,
       smoothWheel: !prefersReducedMotion,
       touchMultiplier: 1.5,
     });
@@ -53,17 +58,17 @@ export default function ScrollExperience() {
     gsap.ticker.add(tickerCallback);
     gsap.ticker.lagSmoothing(0);
 
-    // 2. Global Scroll Progress Calculation
+    // 2. Direct DOM Scroll Progress (Zero setState)
     const handleScroll = () => {
       const totalScroll = document.documentElement.scrollHeight - window.innerHeight;
-      if (totalScroll > 0) {
+      if (totalScroll > 0 && progressBarRef.current) {
         const p = Math.min(Math.max(window.scrollY / totalScroll, 0), 1);
-        setScrollProgress(p);
+        progressBarRef.current.style.transform = `scaleX(${p})`;
       }
     };
     window.addEventListener('scroll', handleScroll, { passive: true });
 
-    // 3. Active Scene Tracker via ScrollTrigger
+    // 3. Active Scene Tracker via ScrollTrigger (Direct DOM updates)
     const sceneIds = [
       '#scene-carousel',
       '#scene-poster',
@@ -79,8 +84,30 @@ export default function ScrollExperience() {
         trigger: id,
         start: 'top center',
         end: 'bottom center',
-        onEnter: () => setCurrentScene(index + 1),
-        onEnterBack: () => setCurrentScene(index + 1),
+        onEnter: () => {
+          if (sceneCounterRef.current) {
+            sceneCounterRef.current.innerText = `0${index + 1} / 07`;
+            if (index === 6) {
+              sceneCounterRef.current.parentElement.classList.add('bg-white/85', 'text-black');
+              sceneCounterRef.current.parentElement.classList.remove('bg-[#050505]/75', 'text-neutral-400');
+            } else {
+              sceneCounterRef.current.parentElement.classList.remove('bg-white/85', 'text-black');
+              sceneCounterRef.current.parentElement.classList.add('bg-[#050505]/75', 'text-neutral-400');
+            }
+          }
+        },
+        onEnterBack: () => {
+          if (sceneCounterRef.current) {
+            sceneCounterRef.current.innerText = `0${index + 1} / 07`;
+            if (index === 6) {
+              sceneCounterRef.current.parentElement.classList.add('bg-white/85', 'text-black');
+              sceneCounterRef.current.parentElement.classList.remove('bg-[#050505]/75', 'text-neutral-400');
+            } else {
+              sceneCounterRef.current.parentElement.classList.remove('bg-white/85', 'text-black');
+              sceneCounterRef.current.parentElement.classList.add('bg-[#050505]/75', 'text-neutral-400');
+            }
+          }
+        },
       });
     });
 
@@ -90,11 +117,11 @@ export default function ScrollExperience() {
       if (!text) return;
 
       const mapping = {
-        'ABOUT': '#scene-poster',
-        'SKILLS': '#scene-tools',
-        'PROJECTS': '#scene-projects',
-        'PROFILES': '#scene-finish',
-        'CONTACT': '#scene-finish',
+        ABOUT: '#scene-poster',
+        SKILLS: '#scene-tools',
+        PROJECTS: '#scene-projects',
+        PROFILES: '#scene-finish',
+        CONTACT: '#scene-finish',
       };
 
       const targetId = mapping[text];
@@ -102,7 +129,7 @@ export default function ScrollExperience() {
         const el = document.querySelector(targetId);
         if (el) {
           e.preventDefault();
-          lenis.scrollTo(el, { offset: 0, duration: 1.5 });
+          lenis.scrollTo(el, { offset: 0, duration: 1.2 });
         }
       }
     };
@@ -112,8 +139,25 @@ export default function ScrollExperience() {
       header.addEventListener('click', handleNavClick);
     }
 
+    // 5. One-time refresh after fonts load + Debounced resize
+    if (document.fonts) {
+      document.fonts.ready.then(() => {
+        ScrollTrigger.refresh();
+      });
+    }
+
+    let resizeTimer;
+    const handleResize = () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        ScrollTrigger.refresh();
+      }, 250);
+    };
+    window.addEventListener('resize', handleResize, { passive: true });
+
     return () => {
       window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', handleResize);
       if (header) header.removeEventListener('click', handleNavClick);
       triggers.forEach((t) => t.kill());
       gsap.ticker.remove(tickerCallback);
@@ -121,64 +165,33 @@ export default function ScrollExperience() {
     };
   }, []);
 
-  const isWhiteScene = currentScene === 7;
-
   return (
     <div className="relative w-full bg-[#050505] text-white">
-      {/* Global Scroll Progress Bar (Thin 2px line at bottom) */}
+      {/* Global Scroll Progress Bar (Hardware-accelerated scaleX, thin 2px line) */}
       <div className="fixed bottom-0 left-0 w-full h-[2px] bg-white/5 z-50 pointer-events-none">
         <div
-          className="h-full bg-gradient-to-r from-[#ff5a1f] to-amber-400 transition-all duration-150 ease-out"
-          style={{ width: `${scrollProgress * 100}%` }}
+          ref={progressBarRef}
+          className="h-full w-full bg-gradient-to-r from-[#ff5a1f] to-amber-400 origin-left"
+          style={{ transform: 'scaleX(0)', willChange: 'transform' }}
         />
       </div>
 
       {/* Global Scene Counter Indicator (Bottom Left) */}
-      <div
-        className={`fixed bottom-5 left-6 sm:left-10 z-50 pointer-events-none flex items-center gap-2 font-mono text-[11px] tracking-widest px-3 py-1 rounded-full border transition-all duration-500 backdrop-blur-md ${
-          isWhiteScene
-            ? 'bg-white/85 text-black border-black/10 shadow-lg'
-            : 'bg-[#050505]/75 text-neutral-400 border-white/5'
-        }`}
-      >
+      <div className="fixed bottom-5 left-6 sm:left-10 z-50 pointer-events-none flex items-center gap-2 font-mono text-[11px] tracking-widest px-3 py-1 rounded-full border border-white/5 bg-[#050505]/75 text-neutral-400 backdrop-blur-md transition-colors duration-300">
         <span className="w-1.5 h-1.5 rounded-full bg-[#ff5a1f]" />
-        <span>0{currentScene} / 07</span>
+        <span ref={sceneCounterRef}>01 / 07</span>
       </div>
 
-      {/* ============================================================= */}
-      {/* SCENE 1: CARD CAROUSEL (Netflix-style 3D Row to Full-Screen)   */}
-      {/* ============================================================= */}
+      {/* ── 7 SCENES ─────────────────────────────────────────────── */}
       <Scene1Carousel />
-
-      {/* ============================================================= */}
-      {/* SCENE 2: POSTER (Giant Ember Sun, Cutout Figure & Zoom-In)    */}
-      {/* ============================================================= */}
       <Scene2Poster />
-
-      {/* ============================================================= */}
-      {/* SCENE 3: TOOLS ARC (12 Floating Tool Tiles in Halo Arc)       */}
-      {/* ============================================================= */}
       <Scene3ToolsArc />
-
-      {/* ============================================================= */}
-      {/* SCENE 4: PARTICLE SPACE (3D Warp Flight & Neon Core)          */}
-      {/* ============================================================= */}
       <Scene4ParticleSpace />
-
-      {/* ============================================================= */}
-      {/* SCENE 5: FACE COLLAGE (Fragmented Mirror Shards Assembly)     */}
-      {/* ============================================================= */}
       <Scene5FaceCollage />
-
-      {/* ============================================================= */}
-      {/* SCENE 6: EDITORIAL RED SCENE & HORIZONTAL PROJECTS            */}
-      {/* ============================================================= */}
       <Scene6EditorialRed />
-
-      {/* ============================================================= */}
-      {/* SCENE 7: WHITE MINIMAL FINISH (Grand Finale & Contact Suite)  */}
-      {/* ============================================================= */}
       <Scene7Finish />
     </div>
   );
 }
+
+export default memo(ScrollExperience);

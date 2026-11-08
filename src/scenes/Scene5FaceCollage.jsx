@@ -1,275 +1,431 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { scenePhotos } from '../data/content';
+import { journeyData } from '../data/content';
 
 gsap.registerPlugin(ScrollTrigger);
 
 /**
  * ====================================================================
- * SCENE 5: TORCH LIGHT FACE COLLAGE
+ * SCENE 5: A JOURNEY THROUGH TIME
  * ====================================================================
- * - Starts nearly pitch-black with a soft circular torch beam following the cursor.
- * - Single high-performance overlay (pure radial-gradient, no filters/blur).
- * - Numeric CSS variables with calc(* 1px) for ultra-fast gsap.quickTo easing.
- * - Hidden underneath: 6 crisp, high-res face photos in clean polaroid frames
- *   (slight 2-3deg rotations, thin borders, captions like "01 // FRAME").
- * - Chrome header: "Find the face behind the code" always visible (z-40) + fading hint.
- * - Touch fallback: smooth Lissajous movement with drag interaction.
- * - Scrub scroll: beam expands until whole collage is lit, then cross-fades to Scene 6.
+ * - Left title: stacked tracked serif caps "A / JOURNEY / THROUGH / TIME"
+ *   with vertical list of labels below.
+ * - Stage: perspective room, glowing concentric rings floor pulsing in 3D.
+ * - Center silhouette figure (~30vh) standing on rings.
+ * - Timeline arc spanning screen like a rainbow with year labels.
+ * - 6 glass 3D cards hanging in a curved row below arc (rotateY ±32deg).
+ * - Light node traveling along arc with dual light lines pointing to active card.
+ * - Active card lifts 12px, brightens, orange edge glow.
+ * - At 2026, final card lights up and soft orange wash spreads.
+ * - Fades to pure black into the Scene 6 projector reveal.
+ * ====================================================================
  */
 export default function Scene5FaceCollage() {
   const containerRef = useRef(null);
-  const overlayRef = useRef(null);
-  const contentRef = useRef(null);
-  const [hasInteracted, setHasInteracted] = useState(false);
+  const arcPathRef = useRef(null);
+  const lightNodeRef = useRef(null);
+  const beamLineLeftRef = useRef(null);
+  const beamLineRightRef = useRef(null);
+  const cardsRef = useRef([]);
+  const fadeOverlayRef = useRef(null);
+  const floorGlowRef = useRef(null);
 
-  // 6 high-resolution face frame configurations with distinct crops & gentle rotations
-  const frames = [
-    {
-      id: 1,
-      image: scenePhotos.faceTiles[0] || '/images/scenes/face-2.jpg',
-      caption: '01 // FRAME — FOCUS',
-      rotation: -2,
-      objectPosition: '50% 32%',
-    },
-    {
-      id: 2,
-      image: scenePhotos.faceTiles[1] || '/images/scenes/face-1.jpg',
-      caption: '02 // FRAME — PRESENCE',
-      rotation: 1.8,
-      objectPosition: '50% 46%',
-    },
-    {
-      id: 3,
-      image: scenePhotos.faceTiles[2] || '/images/scenes/face-3.jpg',
-      caption: '03 // FRAME — CREATION',
-      rotation: -1.5,
-      objectPosition: '50% 38%',
-    },
-    {
-      id: 4,
-      image: scenePhotos.faceTiles[3] || '/images/scenes/face-4.jpg',
-      caption: '04 // FRAME — PROFILE',
-      rotation: 2.2,
-      objectPosition: '54% 28%',
-    },
-    {
-      id: 5,
-      image: scenePhotos.faceTiles[4] || '/images/scenes/face-2.jpg',
-      caption: '05 // FRAME — PERSPECTIVE',
-      rotation: -2.1,
-      objectPosition: '52% 40%',
-    },
-    {
-      id: 6,
-      image: scenePhotos.faceTiles[5] || '/images/scenes/face-1.jpg',
-      caption: '06 // FRAME — ORIGIN',
-      rotation: 1.6,
-      objectPosition: '50% 50%',
-    },
-  ];
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  const entries = useMemo(() => journeyData?.entries || [], []);
+  const count = entries.length;
 
   useEffect(() => {
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const isMobile = window.innerWidth < 768;
-    const overlay = overlayRef.current;
-    if (!overlay) return;
 
-    // Default starting radius (numeric)
-    const initialRadius = isMobile ? 140 : 220;
-    const maxRadius = isMobile ? 480 : 850;
-
-    // Initial default positions (center of screen)
-    const defaultX = window.innerWidth / 2;
-    const defaultY = window.innerHeight / 2;
-
-    if (prefersReducedMotion) {
-      overlay.style.setProperty('--torch-x', `${defaultX}`);
-      overlay.style.setProperty('--torch-y', `${defaultY}`);
-      overlay.style.setProperty('--torch-r', '1600');
-      return;
-    }
-
-    overlay.style.setProperty('--torch-x', `${defaultX}`);
-    overlay.style.setProperty('--torch-y', `${defaultY}`);
-    overlay.style.setProperty('--torch-r', `${initialRadius}`);
-
-    // Smooth torch tracking using gsap.quickTo on pure numeric CSS variables
-    const setX = gsap.quickTo(overlay, '--torch-x', { duration: 0.25, ease: 'power2.out' });
-    const setY = gsap.quickTo(overlay, '--torch-y', { duration: 0.25, ease: 'power2.out' });
-
-    let userMoved = false;
-
-    const handlePointerMove = (e) => {
-      if (!userMoved) {
-        userMoved = true;
-        setHasInteracted(true);
-      }
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const clientX = e.clientX ?? (e.touches && e.touches[0]?.clientX);
-      const clientY = e.clientY ?? (e.touches && e.touches[0]?.clientY);
-      if (clientX === undefined || clientY === undefined) return;
-
-      const px = clientX - rect.left;
-      const py = clientY - rect.top;
-      setX(px);
-      setY(py);
-    };
-
-    window.addEventListener('mousemove', handlePointerMove, { passive: true });
-    window.addEventListener('touchmove', handlePointerMove, { passive: true });
-
-    // Touch / Idle fallback: Lissajous smooth path across collage if no user movement yet
-    let lissajousRaf;
-    let startTime = Date.now();
-    const lissajousLoop = () => {
-      if (!userMoved && overlay) {
-        const t = (Date.now() - startTime) * 0.001;
-        const w = window.innerWidth;
-        const h = window.innerHeight;
-        const px = w * 0.5 + w * 0.22 * Math.sin(t * 0.85);
-        const py = h * 0.52 + h * 0.18 * Math.sin(t * 1.25);
-        setX(px);
-        setY(py);
-        lissajousRaf = requestAnimationFrame(lissajousLoop);
-      }
-    };
-    lissajousRaf = requestAnimationFrame(lissajousLoop);
-
-    // ScrollTrigger timeline: Torch beam slowly grows until whole collage is lit, then cross-fades
     const ctx = gsap.context(() => {
+      const isMobile = window.innerWidth < 768;
+      const path = arcPathRef.current;
+      const totalLen = path?.getTotalLength() || 1200;
+
+      // Master ScrollTrigger timeline pinned for 240vh
       const tl = gsap.timeline({
         scrollTrigger: {
           trigger: containerRef.current,
           start: 'top top',
-          end: '+=250%',
+          end: '+=240%',
           pin: true,
-          scrub: 1,
-          anticipatePin: 1,
+          scrub: 0.3,
+          onUpdate: (self) => {
+            const progress = self.progress;
+            // Determine active card based on progress (0 -> count - 1)
+            const idx = Math.min(
+              count - 1,
+              Math.max(0, Math.floor(progress * count * 1.05))
+            );
+            setActiveIndex(idx);
+
+            // Move light node along SVG arc
+            if (path && lightNodeRef.current) {
+              const pt = path.getPointAtLength(progress * totalLen);
+              gsap.set(lightNodeRef.current, { cx: pt.x, cy: pt.y });
+
+              // Target card top center
+              const targetCard = cardsRef.current[idx];
+              if (targetCard && beamLineLeftRef.current && beamLineRightRef.current) {
+                const rect = targetCard.getBoundingClientRect();
+                const containerRect = containerRef.current.getBoundingClientRect();
+                const cardLeft = rect.left - containerRect.left;
+                const cardRight = rect.right - containerRect.left;
+                const cardTop = rect.top - containerRect.top;
+
+                // Update light lines
+                beamLineLeftRef.current.setAttribute('x1', pt.x);
+                beamLineLeftRef.current.setAttribute('y1', pt.y);
+                beamLineLeftRef.current.setAttribute('x2', cardLeft + 20);
+                beamLineLeftRef.current.setAttribute('y2', cardTop);
+
+                beamLineRightRef.current.setAttribute('x1', pt.x);
+                beamLineRightRef.current.setAttribute('y1', pt.y);
+                beamLineRightRef.current.setAttribute('x2', cardRight - 20);
+                beamLineRightRef.current.setAttribute('y2', cardTop);
+              }
+            }
+          },
         },
       });
 
-      // 1. Torch radius expands on scroll (initialRadius -> maxRadius)
-      tl.fromTo(
-        overlay,
-        { '--torch-r': initialRadius },
-        {
-          '--torch-r': maxRadius,
-          ease: 'power1.inOut',
-        },
-        0.1
-      );
+      if (!prefersReducedMotion) {
+        // Timeline animations for cards active lifting
+        entries.forEach((_, i) => {
+          const card = cardsRef.current[i];
+          if (!card) return;
+          const stepStart = (i / count) * 0.8;
+          const stepEnd = ((i + 1) / count) * 0.8;
 
-      // 2. Collage cards gently settle into 0 rotation as it becomes fully lit
-      tl.to(
-        '.face-card-tile',
-        {
-          rotation: 0,
-          scale: 1.02,
-          ease: 'power1.out',
-        },
-        0.3
-      );
+          tl.fromTo(
+            card,
+            { y: 0, opacity: 0.45 },
+            {
+              y: -14,
+              opacity: 1,
+              ease: 'power1.out',
+              duration: 0.1,
+            },
+            stepStart
+          );
 
-      // 3. Smooth cross-fade to black leading into Scene 6
-      tl.to(
-        contentRef.current,
-        {
-          opacity: 0.15,
-          scale: 0.94,
-          ease: 'power2.in',
-        },
-        0.82
-      );
+          if (i < count - 1) {
+            tl.to(
+              card,
+              {
+                y: 0,
+                opacity: 0.45,
+                ease: 'power1.in',
+                duration: 0.1,
+              },
+              stepEnd
+            );
+          }
+        });
+
+        // Final 2026 orange floor glow
+        tl.to(
+          floorGlowRef.current,
+          {
+            opacity: 0.85,
+            scale: 1.15,
+            ease: 'power2.out',
+            duration: 0.15,
+          },
+          0.78
+        );
+
+        // Fade out to pure black into Scene 6
+        tl.to(
+          fadeOverlayRef.current,
+          {
+            opacity: 1,
+            ease: 'power2.in',
+            duration: 0.18,
+          },
+          0.82
+        );
+      }
     }, containerRef);
 
-    return () => {
-      ctx.revert();
-      cancelAnimationFrame(lissajousRaf);
-      window.removeEventListener('mousemove', handlePointerMove);
-      window.removeEventListener('touchmove', handlePointerMove);
-    };
-  }, []);
+    return () => ctx.revert();
+  }, [entries, count]);
 
   return (
     <section
       id="scene-collage"
       ref={containerRef}
-      className="relative w-full h-screen bg-[#050505] text-white overflow-hidden select-none flex flex-col items-center justify-center z-10"
+      className="relative w-full h-screen bg-[#050505] overflow-hidden select-none"
+      style={{ willChange: 'transform', contain: 'layout paint' }}
     >
-      {/* Film Grain Texture */}
-      <div className="pointer-events-none absolute inset-0 film-grain z-50 opacity-35" />
-
-      {/* Top Scene Header Cue */}
-      <div className="absolute top-8 left-8 sm:left-14 z-50 flex items-center gap-3">
-        <span className="w-2 h-2 rounded-full bg-[#ff5a1f] shadow-[0_0_8px_#ff5a1f]" />
-        <span className="text-xs font-mono tracking-widest text-neutral-400 uppercase">
-          05 // ILLUMINATE THE ARCHITECT
-        </span>
-      </div>
-
-      {/* Header Typography (Centered at top, z-40 so it's always illuminated above the torch) */}
-      <div className="absolute top-14 sm:top-16 inset-x-0 z-40 text-center px-4 pointer-events-none">
-        <h2 className="chrome-text font-display text-xl sm:text-3xl md:text-4xl font-extrabold uppercase tracking-wide">
-          Find the face behind the code
-        </h2>
-        <p
-          className={`font-mono text-[11px] sm:text-xs text-[#ff5a1f] tracking-widest uppercase mt-2 transition-opacity duration-500 ${
-            hasInteracted ? 'opacity-0' : 'opacity-85 animate-pulse'
-          }`}
-        >
-          ✦ Move cursor to illuminate ✦
-        </p>
-      </div>
-
-      {/* Hidden Collage Underneath the Torch */}
+      {/* ── Film Grain Overlay ───────────────────────────────────────── */}
       <div
-        ref={contentRef}
-        className="relative z-10 w-full max-w-5xl mx-auto px-4 sm:px-8 mt-12 sm:mt-16 flex items-center justify-center"
-      >
-        <div className="w-full grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-5 md:gap-6">
-          {frames.map((frame) => (
-            <div
-              key={frame.id}
-              style={{ transform: `rotate(${frame.rotation}deg)` }}
-              className="face-card-tile group relative rounded-2xl border border-white/15 bg-neutral-900/95 shadow-[0_15px_35px_rgba(0,0,0,0.8)] p-2 sm:p-2.5 pb-3.5 sm:pb-4 transition-all duration-300 hover:scale-[1.04] hover:border-[#ff5a1f]/60 hover:shadow-[0_0_25px_rgba(255,90,31,0.25)]"
-            >
-              {/* Photo Frame Container */}
-              <div className="w-full h-32 sm:h-44 md:h-52 rounded-xl overflow-hidden bg-black relative">
-                <img
-                  src={frame.image}
-                  alt={frame.caption}
-                  style={{ objectPosition: frame.objectPosition }}
-                  className="w-full h-full object-cover filter contrast-105 brightness-105 transition-transform duration-500 group-hover:scale-105"
-                  loading="eager"
-                />
-                {/* Subtle glass reflection */}
-                <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-white/10 pointer-events-none" />
-              </div>
+        className="absolute inset-0 pointer-events-none z-30 opacity-[0.03]"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
+          backgroundSize: '200px 200px',
+        }}
+      />
 
-              {/* Polaroid-style caption strip */}
-              <div className="mt-2.5 flex items-center justify-between px-1">
-                <span className="text-[10px] sm:text-[11px] font-mono text-neutral-400 tracking-wider font-medium">
-                  {frame.caption}
-                </span>
-                <span className="w-1.5 h-1.5 rounded-full bg-[#ff5a1f]/70" />
-              </div>
-            </div>
+      {/* ── 1. Top-Left Title: Stacked Tracked Serif Caps ────────────── */}
+      <div className="absolute top-8 sm:top-10 left-6 sm:left-12 z-30 flex flex-col pointer-events-none">
+        <p className="font-mono text-[9px] tracking-[0.3em] text-[#ff5a1f] uppercase mb-1">
+          05 // TIMELINE
+        </p>
+        <div className="font-['Playfair_Display',serif] italic font-bold text-lg sm:text-2xl text-white tracking-widest leading-tight">
+          {journeyData?.titleParts?.map((part, i) => (
+            <span key={i} className="block">
+              {part}
+            </span>
+          )) || 'A JOURNEY THROUGH TIME'}
+        </div>
+
+        {/* Tiny Vertical List of Labels */}
+        <div className="mt-4 flex flex-col gap-1 opacity-40">
+          {(journeyData?.sideLabels || [
+            'IDEAS',
+            'EXPERIENCES',
+            'MILESTONES',
+            'SYSTEMS',
+            'RESEARCH',
+            'PROJECTS',
+          ]).map((lbl) => (
+            <span key={lbl} className="font-mono text-[8px] tracking-[0.25em] text-neutral-300">
+              — {lbl}
+            </span>
           ))}
         </div>
       </div>
 
-      {/* SINGLE TORCH OVERLAY (No filters, no backdrop-filter, pure radial gradient) */}
+      {/* ── 2. Perspective 3D Stage ──────────────────────────────────── */}
       <div
-        ref={overlayRef}
-        className="pointer-events-none absolute inset-0 z-30"
-        style={{
-          background:
-            'radial-gradient(circle at calc(var(--torch-x, 720) * 1px) calc(var(--torch-y, 450) * 1px), transparent 0px, transparent calc(var(--torch-r, 220) * 0.4px), rgba(5, 5, 5, 0.96) calc(var(--torch-r, 220) * 1px))',
-        }}
+        className="relative w-full h-full flex items-center justify-center"
+        style={{ perspective: '1200px', perspectiveOrigin: '50% 55%' }}
+      >
+        {/* ── Floor: Glowing Concentric Orange Rings (rotateX: 70deg) ─── */}
+        <div
+          className="absolute bottom-[2vh] inset-x-0 h-[48vh] flex items-center justify-center pointer-events-none z-0"
+          style={{ transform: 'rotateX(70deg)', transformStyle: 'preserve-3d' }}
+        >
+          {/* 4 Concentric Ellipses pulsing gently */}
+          {[160, 280, 420, 580].map((size, idx) => (
+            <div
+              key={idx}
+              className="absolute rounded-full border border-[#ff5a1f]/30"
+              style={{
+                width: `${size}px`,
+                height: `${size}px`,
+                boxShadow: '0 0 20px rgba(255,90,31,0.15)',
+                animation: `pulseRing 4.2s ease-in-out infinite alternate ${idx * 0.7}s`,
+                background:
+                  idx === 0
+                    ? 'radial-gradient(circle, rgba(255,90,31,0.2) 0%, transparent 70%)'
+                    : 'transparent',
+              }}
+            />
+          ))}
+        </div>
+
+        {/* Soft Floor Wash when final 2026 card activates */}
+        <div
+          ref={floorGlowRef}
+          className="absolute bottom-0 inset-x-0 h-[36vh] pointer-events-none opacity-0 z-0"
+          style={{
+            background:
+              'radial-gradient(ellipse 70% 60% at 50% 100%, rgba(255, 90, 31, 0.28) 0%, rgba(20, 8, 3, 0.5) 45%, transparent 80%)',
+          }}
+        />
+
+        {/* ── Center Standing Silhouette Figure (~30vh) ────────────────── */}
+        <div
+          className="absolute bottom-[10vh] left-1/2 -translate-x-1/2 flex flex-col items-center justify-end z-10 pointer-events-none"
+          style={{ height: '30vh' }}
+        >
+          <img
+            src="/images/scenes/silhouette.webp"
+            alt="Timeline Figure"
+            className="h-full w-auto object-contain drop-shadow-[0_0_14px_rgba(255,90,31,0.4)]"
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+              e.currentTarget.nextSibling.style.display = 'block';
+            }}
+          />
+          {/* Fallback silhouette SVG */}
+          <svg viewBox="0 0 100 220" className="h-full w-auto hidden drop-shadow-[0_0_14px_rgba(255,90,31,0.4)]">
+            <circle cx="50" cy="30" r="16" fill="#0b0b0b" stroke="#ff5a1f" strokeWidth="1.2" />
+            <path
+              d="M26 65 Q50 54 74 65 L84 150 Q75 160 62 165 L58 215 L42 215 L38 165 Q25 160 16 150 Z"
+              fill="#0b0b0b"
+              stroke="#ff5a1f"
+              strokeWidth="1.2"
+            />
+          </svg>
+        </div>
+
+        {/* ── 3. Timeline Arc (Rainbow SVG Path) ───────────────────────── */}
+        <svg
+          className="absolute inset-0 w-full h-full pointer-events-none z-20"
+          viewBox="0 0 1440 900"
+          preserveAspectRatio="none"
+        >
+          <defs>
+            <filter id="arc-glow" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="5" result="blur" />
+              <feComposite in="SourceGraphic" in2="blur" operator="over" />
+            </filter>
+            <linearGradient id="beamGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="rgba(255, 140, 50, 0.7)" />
+              <stop offset="100%" stopColor="rgba(255, 90, 31, 0)" />
+            </linearGradient>
+          </defs>
+
+          {/* Glowing Rainbow Arc Path */}
+          <path
+            d="M 160 490 Q 720 160 1280 490"
+            fill="none"
+            stroke="rgba(255, 90, 31, 0.35)"
+            strokeWidth="8"
+            strokeLinecap="round"
+            filter="url(#arc-glow)"
+          />
+          <path
+            ref={arcPathRef}
+            d="M 160 490 Q 720 160 1280 490"
+            fill="none"
+            stroke="#ff9955"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+          />
+
+          {/* Dual Light Lines pointing from Traveling Node to Active Card */}
+          <line
+            ref={beamLineLeftRef}
+            x1="160"
+            y1="490"
+            x2="160"
+            y2="520"
+            stroke="rgba(255, 130, 45, 0.45)"
+            strokeWidth="1.5"
+            strokeDasharray="4 2"
+          />
+          <line
+            ref={beamLineRightRef}
+            x1="160"
+            y1="490"
+            x2="220"
+            y2="520"
+            stroke="rgba(255, 130, 45, 0.45)"
+            strokeWidth="1.5"
+            strokeDasharray="4 2"
+          />
+
+          {/* Traveling Light Node */}
+          <circle
+            ref={lightNodeRef}
+            cx="160"
+            cy="490"
+            r="6"
+            fill="#ffffff"
+            className="drop-shadow-[0_0_12px_#ff5a1f]"
+          />
+        </svg>
+
+        {/* ── 4. Hanging Curved 3D Timeline Cards Row ─────────────────── */}
+        <div
+          className="absolute inset-x-0 top-[28vh] sm:top-[30vh] flex items-center justify-center gap-2 sm:gap-4 px-4 sm:px-10 z-20 overflow-x-auto sm:overflow-visible no-scrollbar"
+          style={{ transformStyle: 'preserve-3d' }}
+        >
+          {entries.map((item, idx) => {
+            const isActive = idx === activeIndex;
+            // Angle rotates from +32deg on left to -32deg on right
+            const angleY = count > 1 ? 32 - (idx / (count - 1)) * 64 : 0;
+            // Middle cards slightly farther back in Z
+            const distZ = -Math.abs(idx - (count - 1) / 2) * 16;
+
+            return (
+              <div
+                key={item.year}
+                ref={(el) => (cardsRef.current[idx] = el)}
+                className={`relative shrink-0 rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between transition-all duration-300 ${
+                  isActive
+                    ? 'border-[#ff5a1f] shadow-[0_0_28px_rgba(255,90,31,0.45)] bg-[#141414]/95 scale-105'
+                    : 'border-white/10 shadow-2xl bg-[#0c0c0c]/85'
+                } border w-[190px] sm:w-[220px] h-[270px] sm:h-[300px]`}
+                style={{
+                  transform: `rotateY(${angleY}deg) translateZ(${distZ}px)`,
+                  transformStyle: 'preserve-3d',
+                  backfaceVisibility: 'hidden',
+                  willChange: 'transform, opacity',
+                }}
+              >
+                {/* Year Header */}
+                <div className="flex items-center justify-between pb-2 border-b border-white/5">
+                  <span
+                    className={`font-['Anton'] text-xl sm:text-2xl tracking-wider leading-none ${
+                      isActive ? 'text-[#ff5a1f]' : 'text-neutral-400'
+                    }`}
+                  >
+                    {item.year}
+                  </span>
+                  <span className="font-mono text-[8px] text-neutral-500 uppercase tracking-widest">
+                    STEP 0{idx + 1}
+                  </span>
+                </div>
+
+                {/* Grayscale Thumbnail Photo */}
+                <div className="w-full h-[95px] sm:h-[110px] rounded-lg overflow-hidden bg-neutral-900 border border-white/5 my-2 relative">
+                  <img
+                    src={item.image || `/images/scenes/face-tiles/${(idx % 6) + 1}.jpg`}
+                    alt={item.title}
+                    className="w-full h-full object-cover grayscale contrast-125 transition-all duration-300"
+                    style={{
+                      filter: isActive
+                        ? 'grayscale(30%) contrast(115%) brightness(1.05)'
+                        : 'grayscale(100%) brightness(0.7)',
+                    }}
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
+                </div>
+
+                {/* Title & 2 Tiny Lines of Text */}
+                <div className="pt-1">
+                  <h4
+                    className={`font-mono text-xs font-bold leading-snug truncate ${
+                      isActive ? 'text-white' : 'text-neutral-300'
+                    }`}
+                  >
+                    {item.title}
+                  </h4>
+                  <p className="text-[10px] text-neutral-400 mt-1 line-clamp-2 leading-relaxed">
+                    {item.desc}
+                  </p>
+                </div>
+
+                {/* Active Indicator Pip */}
+                {isActive && (
+                  <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-[#ff5a1f] shadow-[0_0_8px_#ff5a1f]" />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── 5. End: Fade to Pure Black into Scene 6 Projector Reveal ───── */}
+      <div
+        ref={fadeOverlayRef}
+        className="absolute inset-0 bg-[#050505] pointer-events-none z-40 opacity-0"
       />
+
+      {/* ── CSS Keyframe for Concentric Rings ─────────────────────────── */}
+      <style>{`
+        @keyframes pulseRing {
+          0% { transform: scale(0.96); opacity: 0.3; }
+          100% { transform: scale(1.04); opacity: 0.65; }
+        }
+      `}</style>
     </section>
   );
 }

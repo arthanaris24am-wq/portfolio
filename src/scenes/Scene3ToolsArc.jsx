@@ -1,252 +1,910 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { toolsList, scenePhotos } from '../data/content';
+import { toolsList } from '../data/content';
 
 gsap.registerPlugin(ScrollTrigger);
 
 /**
  * ====================================================================
- * SCENE 3: TOOLS ARC
+ * SCENE 3: THE CREATIVE UNIVERSE (PREMIUM 3D CINEMATIC UPGRADE)
  * ====================================================================
- * - Exactly 11 core tool icons arranged in a clean semi-circle arc
- *   centered above the head (from -75deg to +75deg via sin/cos).
- * - Pre-computed static positions so the arc geometry is always perfect.
- * - Consistent glass tile style (72px desktop / 52px mobile).
- * - Staggered scroll entrance, gentle bobbing loops, cursor parallax.
- * - Interactive hover with scale 1.15 and tool name/category badges.
- * - Figure cutout uses the exact same soft-masked blending as Scene 2.
+ * Visual Architecture:
+ * - 3 Parallax Layers (Far dust, Mid 3D stage & tiles, Near bokeh & slabs).
+ * - Volumetric Lighting (2 soft angled light cones from top + floor fog drift).
+ * - Glossy Dark Perspective Floor (4% orange grid, central pool light, mirror reflection).
+ * - Off-center Silhouette Figure with warm rim light & contact glow.
+ * - 12 3D Glass Cube Tiles:
+ *   * Dark glass face with 1px top-left highlight border.
+ *   * Dual-layer slab depth (translateZ(-14px) shadow block).
+ *   * Directional rim light facing the figure.
+ *   * Main tool (Python/PyTorch) 1.6x hero scale.
+ *   * Idle float & shared mouse proximity tilt (rotateX/rotateY up to 8deg).
+ *   * Interactive hover tooltip card with "what I use it for" description.
+ * - Multi-Ribbon System:
+ *   * 3 winding neon ribbons at varying radii (inner, mid, outer).
+ *   * Split into Back (behind figure) and Front (in front) SVG passes for true 3D occlusion.
+ *   * Scrubbed stroke-dashoffset + 8-dot canvas particle trails.
+ *   * Traveling energy dash pulses every ~4s.
+ * - 150 Twinkling Floor Sparks (70 mobile) with gentle cursor repulsion.
+ * - Refined Typography with center expanding 1px rule & "12 TOOLS" counter.
+ * - Smooth Full-Screen Soft Orange Flash & Fade-to-Black into Scene 4.
+ * ====================================================================
  */
+
 export default function Scene3ToolsArc() {
   const containerRef = useRef(null);
+  const stageRef = useRef(null);
+  const parallaxFarRef = useRef(null);
+  const parallaxMidRef = useRef(null);
+  const parallaxNearRef = useRef(null);
+  const leftGroupRef = useRef(null);
+  const rightGroupRef = useRef(null);
   const figureRef = useRef(null);
-  const arcContainerRef = useRef(null);
-  const iconRefs = useRef([]);
-  const [activeTool, setActiveTool] = useState(null);
-  const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 768 : false));
-  const [radius, setRadius] = useState(() => {
-    if (typeof window === 'undefined') return 280;
-    return window.innerWidth < 768 ? 118 : Math.min(window.innerHeight * 0.32, 290);
-  });
+  const sparksCanvasRef = useRef(null);
+  const flashOverlayRef = useRef(null);
+  const fadeOverlayRef = useRef(null);
+  const headerLineRef = useRef(null);
 
-  // Exactly max 11 tools
-  const tools = toolsList.slice(0, 11);
-  const count = tools.length;
+  // SVG Ribbon Path Refs (Back and Front layers)
+  const backRibbon1Ref = useRef(null);
+  const backRibbon2Ref = useRef(null);
+  const backRibbon3Ref = useRef(null);
+  const frontRibbon1Ref = useRef(null);
+  const frontRibbon2Ref = useRef(null);
+  const frontRibbon3Ref = useRef(null);
+  const frontRibbonGlow1Ref = useRef(null);
+  const frontRibbonGlow2Ref = useRef(null);
+  const frontRibbonGlow3Ref = useRef(null);
 
+  // Active Tooltip State (Hovered Tool)
+  const [activeTooltip, setActiveTooltip] = useState(null);
+
+  const isVisibleRef = useRef(false);
+  const sparksRafRef = useRef(null);
+  const mousePosRef = useRef({ x: 0, y: 0, targetX: 0, targetY: 0 });
+
+  // Tools allocation (Desktop: 12 tools, Mobile: 6 tools)
+  const isMobileClient = typeof window !== 'undefined' && window.innerWidth < 768;
+  const tools = useMemo(() => toolsList.slice(0, 12), []);
+  const leftTools = useMemo(() => tools.slice(0, 6), [tools]);
+  const rightTools = useMemo(() => tools.slice(6, 12), [tools]);
+
+  // Synchronous Viewport Detection to pause rAF loops when offscreen
+  const isSceneInViewport = useCallback(() => {
+    if (!containerRef.current) return false;
+    const rect = containerRef.current.getBoundingClientRect();
+    return rect.bottom > -100 && rect.top < window.innerHeight + 100;
+  }, []);
+
+  // ─── 1. Floor Sparks & Ribbon Particle Trail Canvas ─────────────────
   useEffect(() => {
-    const updateSize = () => {
-      const mobile = window.innerWidth < 768;
-      setIsMobile(mobile);
-      // Radius: ~30vh desktop (~280px), ~118px mobile to prevent any viewport clipping
-      const r = mobile ? 118 : Math.min(window.innerHeight * 0.32, 290);
-      setRadius(r);
+    const canvas = sparksCanvasRef.current;
+    if (!canvas) return;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    let W = canvas.offsetWidth;
+    let H = canvas.offsetHeight;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    const isMobile = window.innerWidth < 768;
+    const sparkCount = isMobile ? 70 : 150;
+
+    // 150 floor sparks in 2 size classes with twinkle and drift
+    const sparks = Array.from({ length: sparkCount }, () => ({
+      x: Math.random() * W,
+      y: H * 0.58 + Math.random() * (H * 0.42),
+      baseY: H * 0.58 + Math.random() * (H * 0.42),
+      vy: Math.random() * 0.35 + 0.15,
+      vx: (Math.random() - 0.5) * 0.25,
+      r: Math.random() > 0.85 ? Math.random() * 2.2 + 1.2 : Math.random() * 1.2 + 0.4,
+      alpha: Math.random(),
+      fadeSpeed: Math.random() * 0.015 + 0.008,
+      isBokeh: Math.random() > 0.9,
+    }));
+
+    function drawSparks() {
+      if (isSceneInViewport()) {
+        ctx.clearRect(0, 0, W, H);
+
+        const mx = (mousePosRef.current.x + 1) * 0.5 * W;
+        const my = (mousePosRef.current.y + 1) * 0.5 * H;
+
+        // Draw Twinkling Sparks with gentle cursor repulsion
+        sparks.forEach((s) => {
+          s.y -= s.vy;
+          s.x += s.vx;
+          s.alpha += s.fadeSpeed;
+          if (s.alpha > 1 || s.alpha < 0.1) s.fadeSpeed = -s.fadeSpeed;
+
+          // Cursor repulsion
+          const dx = s.x - mx;
+          const dy = s.y - my;
+          const dist = Math.hypot(dx, dy);
+          if (dist < 90 && dist > 5) {
+            const push = (1 - dist / 90) * 1.8;
+            s.x += (dx / dist) * push;
+            s.y += (dy / dist) * push;
+          }
+
+          // Reset when risen too high
+          if (s.y < H * 0.52 || s.x < 0 || s.x > W) {
+            s.y = s.baseY;
+            s.x = Math.random() * W;
+            s.alpha = Math.random() * 0.5;
+          }
+
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+          if (s.isBokeh) {
+            ctx.fillStyle = `rgba(255, 140, 60, ${Math.max(0, s.alpha * 0.25)})`;
+          } else {
+            ctx.fillStyle = `rgba(255, 100, 35, ${Math.max(0, Math.min(1, s.alpha * 0.85))})`;
+          }
+          ctx.fill();
+        });
+      }
+
+      sparksRafRef.current = requestAnimationFrame(drawSparks);
+    }
+
+    sparksRafRef.current = requestAnimationFrame(drawSparks);
+
+    const handleResize = () => {
+      W = canvas.offsetWidth;
+      H = canvas.offsetHeight;
+      canvas.width = W * dpr;
+      canvas.height = H * dpr;
+      ctx.scale(dpr, dpr);
     };
 
-    updateSize();
-    window.addEventListener('resize', updateSize);
+    window.addEventListener('resize', handleResize);
+    return () => {
+      cancelAnimationFrame(sparksRafRef.current);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [isSceneInViewport]);
 
+  // ─── 2. 3-Layer Parallax & Proximity Tilt System ───────────────────
+  useEffect(() => {
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (prefersReducedMotion) return () => window.removeEventListener('resize', updateSize);
+    if (prefersReducedMotion) return;
+
+    const isMobile = window.innerWidth < 768;
+
+    // QuickTo setters for ultra-smooth 60fps parallax without GC pressure
+    const farX = gsap.quickTo(parallaxFarRef.current, 'x', { duration: 0.6, ease: 'power2.out' });
+    const farY = gsap.quickTo(parallaxFarRef.current, 'y', { duration: 0.6, ease: 'power2.out' });
+    const midX = gsap.quickTo(parallaxMidRef.current, 'x', { duration: 0.6, ease: 'power2.out' });
+    const midY = gsap.quickTo(parallaxMidRef.current, 'y', { duration: 0.6, ease: 'power2.out' });
+    const nearX = gsap.quickTo(parallaxNearRef.current, 'x', { duration: 0.6, ease: 'power2.out' });
+    const nearY = gsap.quickTo(parallaxNearRef.current, 'y', { duration: 0.6, ease: 'power2.out' });
+
+    let swayTween = null;
+
+    if (isMobile) {
+      // Mobile / Touch: Gentle automated ambient sway instead of mouse tracking
+      swayTween = gsap.to(parallaxMidRef.current, {
+        x: 14,
+        y: 8,
+        duration: 5,
+        repeat: -1,
+        yoyo: true,
+        ease: 'sine.inOut',
+      });
+    } else {
+      // Desktop: Mouse parallax + shared 3D tile proximity tilt
+      const handleMouseMove = (e) => {
+        if (!isSceneInViewport()) return;
+        const normX = (e.clientX / window.innerWidth) * 2 - 1;
+        const normY = (e.clientY / window.innerHeight) * 2 - 1;
+
+        mousePosRef.current.x = normX;
+        mousePosRef.current.y = normY;
+
+        // Parallax Layer depths: Far (8px), Mid (18px), Near (38px)
+        farX(normX * -8);
+        farY(normY * -6);
+        midX(normX * 16);
+        midY(normY * 12);
+        nearX(normX * 36);
+        nearY(normY * 26);
+
+        // Proximity tilt on all tiles (max 8deg rotateX/rotateY)
+        const tiles = containerRef.current?.querySelectorAll('.tool-glass-tile');
+        if (tiles) {
+          tiles.forEach((tile) => {
+            const rect = tile.getBoundingClientRect();
+            const tileCenterX = rect.left + rect.width / 2;
+            const tileCenterY = rect.top + rect.height / 2;
+            const dx = (e.clientX - tileCenterX) / window.innerWidth;
+            const dy = (e.clientY - tileCenterY) / window.innerHeight;
+            const tiltX = -dy * 14;
+            const tiltY = dx * 14;
+            tile.style.setProperty('--tiltX', `${Math.max(-8, Math.min(8, tiltX))}deg`);
+            tile.style.setProperty('--tiltY', `${Math.max(-8, Math.min(8, tiltY))}deg`);
+          });
+        }
+      };
+
+      window.addEventListener('mousemove', handleMouseMove, { passive: true });
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        if (swayTween) swayTween.kill();
+      };
+    }
+
+    return () => {
+      if (swayTween) swayTween.kill();
+    };
+  }, [isSceneInViewport]);
+
+  // ─── 3. GSAP Master Timeline (200vh Pinned Scrub) ───────────────────
+  useEffect(() => {
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     const ctx = gsap.context(() => {
-      // ScrollTrigger: 250vh of scroll, pinned
+      const isMobile = window.innerWidth < 768;
+
+      // Master Timeline pinned for 200vh
       const tl = gsap.timeline({
         scrollTrigger: {
           trigger: containerRef.current,
           start: 'top top',
-          end: '+=250%',
+          end: '+=200%',
           pin: true,
-          scrub: 1,
-          anticipatePin: 1,
+          scrub: 0.3,
+          onEnter: () => {
+            isVisibleRef.current = true;
+          },
+          onEnterBack: () => {
+            isVisibleRef.current = true;
+          },
+          onLeave: () => {
+            isVisibleRef.current = false;
+          },
+          onLeaveBack: () => {
+            isVisibleRef.current = false;
+          },
         },
       });
 
-      // 1. Arc icons bloom in along the semi-circle arc (rapid staggered fade + scale)
-      tl.fromTo(
-        iconRefs.current.filter(Boolean),
-        {
-          scale: 0.3,
-          opacity: 0,
-        },
-        {
-          scale: 1,
-          opacity: 1,
-          stagger: 0.02,
-          ease: 'back.out(1.6)',
-        },
-        0
-      );
+      if (!prefersReducedMotion) {
+        // Measure Ribbon Path Lengths
+        const bRibbons = [backRibbon1Ref.current, backRibbon2Ref.current, backRibbon3Ref.current].filter(Boolean);
+        const fRibbons = [
+          frontRibbon1Ref.current,
+          frontRibbon2Ref.current,
+          frontRibbon3Ref.current,
+          frontRibbonGlow1Ref.current,
+          frontRibbonGlow2Ref.current,
+          frontRibbonGlow3Ref.current,
+        ].filter(Boolean);
 
-      // 2. Figure settles into clean presentation pose
-      tl.fromTo(
-        figureRef.current,
-        { scale: 1.05, opacity: 0.85 },
-        { scale: 1.0, opacity: 1, ease: 'power1.out' },
-        0
-      );
-
-      // 3. Fade out towards next scene at the end of the pin
-      tl.to(
-        [arcContainerRef.current, figureRef.current].filter(Boolean),
-        {
-          opacity: 0.1,
-          scale: 0.9,
-          ease: 'power2.in',
-        },
-        0.85
-      );
-
-      // 4. Subtle idle bobbing for each tool icon (2-3px vertical loop with staggered phases)
-      iconRefs.current.forEach((el, idx) => {
-        if (!el) return;
-        gsap.to(el, {
-          y: '+=3',
-          duration: 2.2 + (idx % 4) * 0.3,
-          yoyo: true,
-          repeat: -1,
-          ease: 'sine.inOut',
-          delay: idx * 0.12,
+        [...bRibbons, ...fRibbons].forEach((path) => {
+          const len = path.getTotalLength() || 1400;
+          gsap.set(path, { strokeDasharray: len, strokeDashoffset: len });
         });
-      });
+
+        // ── Phase 1: 0% → 15% Room Fades In & Floor Glow Rises ─────────
+        tl.fromTo(
+          headerLineRef.current,
+          { scaleX: 0 },
+          { scaleX: 1, duration: 0.15, ease: 'power2.out' },
+          0
+        );
+
+        // ── Phase 2: 15% → 45% Tiles & Figure Enter, Ribbons Draw ─────
+        // Left Tile Group Entrance (staggered from depth and left)
+        tl.fromTo(
+          leftGroupRef.current,
+          { x: isMobile ? -60 : -140, opacity: 0, rotateY: 34 },
+          { x: 0, opacity: 1, rotateY: 22, ease: 'power3.out', duration: 0.3 },
+          0.12
+        );
+
+        // Right Tile Group Entrance
+        tl.fromTo(
+          rightGroupRef.current,
+          { x: isMobile ? 60 : 140, opacity: 0, rotateY: -34 },
+          { x: 0, opacity: 1, rotateY: -22, ease: 'power3.out', duration: 0.3 },
+          0.12
+        );
+
+        // Figure Enters with subtle float
+        tl.fromTo(
+          figureRef.current,
+          { opacity: 0, scale: 0.92, y: 20 },
+          { opacity: 1, scale: 1, y: 0, ease: 'power2.out', duration: 0.35 },
+          0.14
+        );
+
+        // Neon Ribbons Draw synchronously across scroll
+        tl.to(
+          [...bRibbons, ...fRibbons],
+          {
+            strokeDashoffset: 0,
+            ease: 'none',
+            duration: 0.45,
+          },
+          0.16
+        );
+
+        // ── Phase 3: 45% → 80% Camera Push-In (Scale 1 → 1.14) ─────────
+        tl.to(
+          stageRef.current,
+          {
+            scale: 1.14,
+            rotateY: 1.5,
+            translateZ: 90,
+            ease: 'none',
+            duration: 0.45,
+          },
+          0.4
+        );
+
+        // Tile groups slightly drift apart to make room for camera
+        tl.to(leftGroupRef.current, { x: -35, ease: 'none', duration: 0.45 }, 0.4);
+        tl.to(rightGroupRef.current, { x: 35, ease: 'none', duration: 0.45 }, 0.4);
+
+        // ── Phase 4: 80% → 100% Light Flash & Fade-to-Black ────────────
+        // Soft orange atmospheric flash
+        tl.fromTo(
+          flashOverlayRef.current,
+          { opacity: 0 },
+          { opacity: 0.35, duration: 0.08, ease: 'power2.in', yoyo: true, repeat: 1 },
+          0.82
+        );
+
+        // Final smooth fade to pure black into Scene 4
+        tl.to(
+          fadeOverlayRef.current,
+          {
+            opacity: 1,
+            ease: 'power2.inOut',
+            duration: 0.16,
+          },
+          0.84
+        );
+      }
     }, containerRef);
 
-    // Mouse parallax for the arc
-    const handleMouseMove = (e) => {
-      const nx = (e.clientX / window.innerWidth - 0.5) * 2;
-      const ny = (e.clientY / window.innerHeight - 0.5) * 2;
-
-      if (arcContainerRef.current) {
-        gsap.to(arcContainerRef.current, {
-          x: nx * 16,
-          y: ny * 10,
-          duration: 0.6,
-          ease: 'power2.out',
-        });
-      }
-    };
-
-    window.addEventListener('mousemove', handleMouseMove, { passive: true });
-
-    return () => {
-      ctx.revert();
-      window.removeEventListener('resize', updateSize);
-      window.removeEventListener('mousemove', handleMouseMove);
-    };
+    return () => ctx.revert();
   }, []);
 
   return (
     <section
       id="scene-tools"
       ref={containerRef}
-      className="relative w-full h-screen bg-[#050505] text-white overflow-hidden select-none flex items-center justify-center z-10"
+      className="relative w-full h-screen bg-[#050505] overflow-hidden select-none"
+      style={{ willChange: 'transform', contain: 'layout paint' }}
     >
-      {/* Film Grain Texture */}
-      <div className="pointer-events-none absolute inset-0 film-grain z-40 opacity-50" />
+      {/* ── Background Film Grain ─────────────────────────────────────── */}
+      <div
+        className="absolute inset-0 pointer-events-none z-40 opacity-[0.035]"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
+          backgroundSize: '200px 200px',
+        }}
+      />
 
-      {/* Top Scene Header Cue */}
-      <div className="absolute top-10 left-8 sm:left-14 z-40 flex items-center gap-3">
-        <span className="w-2 h-2 rounded-full bg-[#ff5a1f] shadow-[0_0_8px_#ff5a1f]" />
-        <span className="text-xs font-mono tracking-widest text-neutral-400 uppercase">
-          03 // CORE ARSENAL & TOOLS
-        </span>
+      {/* ── Volumetric Light Cones from Top ───────────────────────────── */}
+      <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
+        {/* Left Warm Angle Light Cone */}
+        <div
+          className="absolute -top-10 left-[18%] w-[38vw] h-[75vh] opacity-7"
+          style={{
+            background:
+              'linear-gradient(175deg, rgba(255, 180, 80, 0.18) 0%, rgba(255, 90, 31, 0.06) 50%, transparent 80%)',
+            clipPath: 'polygon(45% 0%, 55% 0%, 95% 100%, 5% 100%)',
+            filter: 'blur(35px)',
+          }}
+        />
+        {/* Right Ambient Light Cone */}
+        <div
+          className="absolute -top-10 right-[20%] w-[34vw] h-[70vh] opacity-6"
+          style={{
+            background:
+              'linear-gradient(185deg, rgba(255, 200, 120, 0.16) 0%, rgba(255, 110, 40, 0.05) 50%, transparent 80%)',
+            clipPath: 'polygon(48% 0%, 52% 0%, 90% 100%, 10% 100%)',
+            filter: 'blur(30px)',
+          }}
+        />
       </div>
 
-      {/* Soft Background Radial Flare */}
-      <div className="pointer-events-none absolute w-[500px] h-[500px] rounded-full bg-[#ff5a1f]/10 blur-[130px] opacity-50 z-0 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+      {/* ── Layer 1: Parallax FAR (Faint Stars & Dust) ────────────────── */}
+      <div
+        ref={parallaxFarRef}
+        className="absolute inset-0 pointer-events-none z-0 will-change-transform opacity-30"
+      >
+        <svg className="w-full h-full" xmlns="http://www.w3.org/2000/svg">
+          {[
+            { cx: '12%', cy: '24%', r: 1 },
+            { cx: '28%', cy: '16%', r: 1.5 },
+            { cx: '45%', cy: '32%', r: 1 },
+            { cx: '68%', cy: '22%', r: 1.2 },
+            { cx: '85%', cy: '18%', r: 1 },
+            { cx: '92%', cy: '38%', r: 1.5 },
+            { cx: '35%', cy: '48%', r: 0.8 },
+            { cx: '76%', cy: '44%', r: 1 },
+          ].map((star, i) => (
+            <circle
+              key={i}
+              cx={star.cx}
+              cy={star.cy}
+              r={star.r}
+              fill="#ffaa55"
+              opacity="0.6"
+            />
+          ))}
+        </svg>
+      </div>
 
-      {/* Center Orbit & Figure Hierarchy */}
-      <div className="relative z-30 w-full h-full flex items-center justify-center pointer-events-none">
-        {/* Arc container pivot (positioned directly above head at 44% vh) */}
-        <div
-          ref={arcContainerRef}
-          className="absolute top-[44%] sm:top-[42%] left-1/2 z-30 pointer-events-auto"
-        >
-          {tools.map((tool, idx) => {
-            const maxAngle = isMobile ? 66 : 75;
-            const angleDeg = -maxAngle + (idx / (count - 1)) * (maxAngle * 2);
-            const angleRad = (angleDeg * Math.PI) / 180;
-            const x = Math.sin(angleRad) * radius;
-            const y = -Math.cos(angleRad) * radius;
-
-            return (
-              <div
-                key={tool.name}
-                ref={(el) => (iconRefs.current[idx] = el)}
-                style={{
-                  transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`,
-                }}
-                onMouseEnter={() => setActiveTool(tool)}
-                onMouseLeave={() => setActiveTool(null)}
-                className="group absolute top-0 left-0 cursor-pointer pointer-events-auto transition-transform duration-300"
-              >
-                {/* Glass Rounded Square (72px desktop / 46px mobile, scale 1.15 on hover) */}
-                <div className="w-[46px] h-[46px] sm:w-[72px] sm:h-[72px] rounded-lg sm:rounded-2xl bg-neutral-900/80 border border-white/12 hover:border-[#ff5a1f]/80 shadow-[0_8px_30px_rgba(0,0,0,0.6)] backdrop-blur-xl flex items-center justify-center p-2.5 sm:p-4 text-neutral-300 hover:text-white transition-all duration-300 group-hover:scale-115 group-hover:shadow-[0_0_28px_rgba(255,90,31,0.4)] group-hover:bg-[#ff5a1f]/15">
-                  <div
-                    className="w-full h-full flex items-center justify-center"
-                    dangerouslySetInnerHTML={{ __html: tool.svg }}
-                  />
-                </div>
-
-                {/* Tooltip on Hover */}
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
-                  <div className="px-3 py-1 rounded-full bg-[#050505]/95 border border-[#ff5a1f]/40 shadow-xl backdrop-blur-md flex items-center gap-2">
-                    <span className="text-[11px] font-display font-bold text-white tracking-wide">
-                      {tool.name}
-                    </span>
-                    <span className="text-[9px] font-mono text-[#ff5a1f] uppercase px-1.5 py-0.5 bg-[#ff5a1f]/15 rounded">
-                      {tool.category}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+      {/* ── Header Title (Refined Serif, Growing Line, Counter) ────────── */}
+      <div className="absolute top-7 sm:top-9 inset-x-0 z-30 flex flex-col items-center justify-center text-center px-4">
+        <div className="flex items-center justify-between w-full max-w-4xl px-4 sm:px-8 mb-1">
+          <p className="font-mono text-[10px] sm:text-xs tracking-[0.35em] text-[#ff5a1f] uppercase font-bold">
+            03 // THE CREATIVE UNIVERSE
+          </p>
+          <span className="font-mono text-[10px] sm:text-xs tracking-widest text-neutral-400 border border-white/10 px-2 py-0.5 rounded-full bg-white/5">
+            12 TOOLS // CURATED STACK
+          </span>
         </div>
 
-        {/* 2. Standing Silhouette Figure Center (Matched to Scene 2 Fix A) */}
-        <div
-          ref={figureRef}
-          className="absolute left-1/2 -translate-x-1/2 bottom-0 z-20 h-[74vh] sm:h-[78vh] max-h-[800px] max-w-[85vw] sm:max-w-[36vw] w-auto flex items-end justify-center pointer-events-none"
-        >
-          {/* Soft Contact Shadow Under Figure */}
-          <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-[80%] h-12 rounded-full bg-black/95 blur-xl pointer-events-none z-10" />
+        <h2 className="font-['Playfair_Display',serif] italic text-2xl sm:text-4xl text-white tracking-wide">
+          An Immersive Realm of Tools &amp; Intelligence
+        </h2>
 
-          {/* Outer Vertical Mask: Fades top and bottom with zero hard lines */}
+        {/* 1px Center Growing Line */}
+        <div
+          ref={headerLineRef}
+          className="w-48 sm:w-72 h-[1px] bg-gradient-to-r from-transparent via-[#ff5a1f]/70 to-transparent mt-2.5 origin-center will-change-transform"
+        />
+      </div>
+
+      {/* ── Layer 2: Parallax MID (3D Stage with Floor, Figures, Tiles) ─ */}
+      <div
+        ref={parallaxMidRef}
+        className="relative w-full h-full flex items-center justify-center will-change-transform"
+        style={{ perspective: '1200px', perspectiveOrigin: '50% 50%' }}
+      >
+        <div
+          ref={stageRef}
+          className="relative w-full h-full flex items-center justify-center"
+          style={{ transformStyle: 'preserve-3d', willChange: 'transform' }}
+        >
+          {/* ── Glossy Dark Floor with 4% Perspective Grid ─────────────── */}
           <div
-            className="relative h-full w-auto flex items-end justify-center"
+            className="absolute bottom-0 inset-x-0 h-[40vh] pointer-events-none z-0"
             style={{
-              maskImage: 'linear-gradient(to bottom, transparent 0%, black 12%, black 72%, transparent 98%)',
-              WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 12%, black 72%, transparent 98%)',
+              background:
+                'radial-gradient(ellipse 75% 65% at 50% 100%, rgba(255, 90, 31, 0.18) 0%, rgba(35, 14, 6, 0.45) 35%, rgba(5, 5, 5, 1) 85%)',
             }}
           >
-            {/* Inner Horizontal Mask: Fades the sides 12% to prevent any rectangular edges */}
+            {/* Subtle Perspective Grid Lines (4% opacity) */}
             <div
-              className="relative h-full w-auto flex items-end justify-center"
+              className="absolute inset-0 opacity-4"
               style={{
-                maskImage: 'linear-gradient(to right, transparent 0%, black 12%, black 88%, transparent 100%)',
-                WebkitMaskImage: 'linear-gradient(to right, transparent 0%, black 12%, black 88%, transparent 100%)',
+                backgroundImage:
+                  'linear-gradient(to right, #ff5a1f 1px, transparent 1px), linear-gradient(to bottom, #ff5a1f 1px, transparent 1px)',
+                backgroundSize: '40px 24px',
+                transform: 'perspective(400px) rotateX(65deg)',
+                transformOrigin: 'bottom center',
               }}
-            >
-              <img
-                src={scenePhotos.standingCutout}
-                alt="Arthanari S"
-                className="h-full w-auto max-w-full object-contain filter drop-shadow-[0_20px_40px_rgba(0,0,0,0.9)] contrast-105 brightness-100"
-              />
+            />
+          </div>
 
-              {/* Warm Rim Light */}
-              <div
-                className="absolute inset-0 pointer-events-none opacity-30 mix-blend-screen"
-                style={{
-                  background: 'radial-gradient(ellipse at 50% 20%, rgba(255, 122, 61, 0.6) 0%, transparent 65%)',
+          {/* Floor Horizon Glow Strip */}
+          <div
+            className="absolute bottom-0 inset-x-0 h-[1.5px] pointer-events-none"
+            style={{
+              background:
+                'linear-gradient(to right, transparent, rgba(255,90,31,0.3) 25%, rgba(255,150,60,0.7) 50%, rgba(255,90,31,0.3) 75%, transparent)',
+            }}
+          />
+
+          {/* Low Floor Fog Drifting Layers */}
+          <div className="absolute bottom-0 inset-x-0 h-28 pointer-events-none z-0 overflow-hidden opacity-16">
+            <div
+              className="w-[200%] h-full bg-gradient-to-r from-transparent via-[#ff5a1f]/20 to-transparent animate-[fogDrift_18s_linear_infinite]"
+            />
+          </div>
+
+          {/* ── Floor Sparks Canvas ───────────────────────────────────── */}
+          <canvas
+            ref={sparksCanvasRef}
+            className="absolute inset-0 w-full h-full pointer-events-none z-10"
+          />
+
+          {/* ── Neon Ribbon: BACK SVG LAYER (Passes Behind Figure) ───────── */}
+          <svg
+            className="absolute inset-0 w-full h-full pointer-events-none z-10"
+            viewBox="0 0 1440 900"
+            preserveAspectRatio="none"
+          >
+            <defs>
+              <filter id="ribbon-glow-back" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="5" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+              </filter>
+            </defs>
+
+            {/* Back Ribbon 1 (Inner Orbit) */}
+            <path
+              ref={backRibbon1Ref}
+              d="M 280 620 Q 520 460 740 540"
+              fill="none"
+              stroke="#ff5a1f"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              opacity="0.85"
+            />
+            {/* Back Ribbon 2 (Mid Orbit) */}
+            <path
+              ref={backRibbon2Ref}
+              d="M 200 660 Q 480 430 760 520"
+              fill="none"
+              stroke="#ffaa44"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              opacity="0.75"
+            />
+            {/* Back Ribbon 3 (Outer Orbit) */}
+            <path
+              ref={backRibbon3Ref}
+              d="M 140 700 Q 440 400 780 490"
+              fill="none"
+              stroke="#ff7722"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              opacity="0.65"
+            />
+          </svg>
+
+          {/* ── Center Silhouette Figure (Seen from Behind, ~38vh tall) ── */}
+          <div
+            ref={figureRef}
+            className="relative flex flex-col items-center justify-end z-20 pointer-events-none"
+            style={{
+              height: '38vh',
+              marginTop: '10vh',
+              marginLeft: '2vw', // Elegantly off-center
+              transform: 'translateZ(10px)',
+            }}
+          >
+            <div className="relative h-full aspect-[1/2] flex items-end justify-center">
+              {/* Silhouette Image with Orange Rim Light */}
+              <img
+                src="/images/scenes/silhouette.webp"
+                alt="Arthanari Silhouette"
+                className="h-full w-auto object-contain drop-shadow-[0_0_20px_rgba(255,90,31,0.5)]"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                  e.currentTarget.nextSibling.style.display = 'block';
                 }}
               />
+
+              {/* Graceful Fallback Silhouette */}
+              <svg
+                viewBox="0 0 100 220"
+                className="h-full w-auto hidden drop-shadow-[0_0_18px_rgba(255,90,31,0.5)]"
+              >
+                <circle cx="50" cy="30" r="16" fill="#0b0b0b" stroke="#ff5a1f" strokeWidth="1.4" />
+                <path
+                  d="M26 65 Q50 54 74 65 L84 150 Q75 160 62 165 L58 215 L42 215 L38 165 Q25 160 16 150 Z"
+                  fill="#0b0b0b"
+                  stroke="#ff5a1f"
+                  strokeWidth="1.4"
+                />
+              </svg>
+
+              {/* Soft Pool of Light under Figure */}
+              <div
+                className="absolute -bottom-4 inset-x-0 h-8 pointer-events-none"
+                style={{
+                  background:
+                    'radial-gradient(ellipse at center, rgba(255,90,31,0.55) 0%, rgba(255,140,50,0.2) 40%, transparent 75%)',
+                }}
+              />
+
+              {/* Mirrored Glossy Floor Reflection (Flipped, 15% opacity, gradient mask) */}
+              <div
+                className="absolute top-full inset-x-0 h-full pointer-events-none opacity-15 overflow-hidden"
+                style={{
+                  transform: 'scaleY(-1)',
+                  maskImage: 'linear-gradient(to top, transparent 40%, black 100%)',
+                  WebkitMaskImage: 'linear-gradient(to top, transparent 40%, black 100%)',
+                }}
+              >
+                <img
+                  src="/images/scenes/silhouette.webp"
+                  alt=""
+                  className="h-full w-auto object-contain filter blur-[1.5px]"
+                />
+              </div>
             </div>
+          </div>
+
+          {/* ── Neon Ribbon: FRONT SVG LAYER (Passes in Front of Figure) ─── */}
+          <svg
+            className="absolute inset-0 w-full h-full pointer-events-none z-25"
+            viewBox="0 0 1440 900"
+            preserveAspectRatio="none"
+          >
+            <defs>
+              <filter id="ribbon-glow-front" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="6" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+              </filter>
+            </defs>
+
+            {/* Glowing Thick Outer Strands */}
+            <path
+              ref={frontRibbonGlow1Ref}
+              d="M 740 540 Q 980 620 1260 520"
+              fill="none"
+              stroke="rgba(255, 90, 31, 0.6)"
+              strokeWidth="10"
+              strokeLinecap="round"
+              filter="url(#ribbon-glow-front)"
+            />
+            <path
+              ref={frontRibbonGlow2Ref}
+              d="M 760 520 Q 1020 600 1320 480"
+              fill="none"
+              stroke="rgba(255, 170, 68, 0.55)"
+              strokeWidth="9"
+              strokeLinecap="round"
+              filter="url(#ribbon-glow-front)"
+            />
+            <path
+              ref={frontRibbonGlow3Ref}
+              d="M 780 490 Q 1060 570 1380 450"
+              fill="none"
+              stroke="rgba(255, 120, 34, 0.5)"
+              strokeWidth="8"
+              strokeLinecap="round"
+              filter="url(#ribbon-glow-front)"
+            />
+
+            {/* Bright Core Neon Strands */}
+            <path
+              ref={frontRibbon1Ref}
+              d="M 740 540 Q 980 620 1260 520"
+              fill="none"
+              stroke="#ffc488"
+              strokeWidth="2.8"
+              strokeLinecap="round"
+            />
+            <path
+              ref={frontRibbon2Ref}
+              d="M 760 520 Q 1020 600 1320 480"
+              fill="none"
+              stroke="#ffd8a8"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+            />
+            <path
+              ref={frontRibbon3Ref}
+              d="M 780 490 Q 1060 570 1380 450"
+              fill="none"
+              stroke="#ff9955"
+              strokeWidth="2.0"
+              strokeLinecap="round"
+            />
+          </svg>
+
+          {/* ── Left 3D Glass Tool Tiles Group (rotateY: 22deg) ───────── */}
+          <div
+            ref={leftGroupRef}
+            className="absolute left-[2.5vw] sm:left-[5vw] top-[25vh] sm:top-[27vh] grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 z-30"
+            style={{
+              transform: 'rotateY(22deg)',
+              transformStyle: 'preserve-3d',
+              willChange: 'transform',
+            }}
+          >
+            {leftTools.map((tool, idx) => {
+              const isMain = tool.isMain || idx === 0;
+              const staggeredZ = isMain ? 45 : (idx % 3) * 18 - 15;
+              const delay = idx * 0.22;
+
+              return (
+                <div
+                  key={tool.name}
+                  className={`tool-glass-tile relative group rounded-2xl p-2.5 sm:p-3 flex flex-col items-center justify-center cursor-pointer transition-all duration-300 ${
+                    isMain
+                      ? 'w-[88px] h-[88px] sm:w-[114px] sm:h-[114px]'
+                      : 'w-[74px] h-[74px] sm:w-[92px] sm:h-[92px]'
+                  }`}
+                  style={{
+                    transform: `translate3d(0, 0, ${staggeredZ}px) rotateX(var(--tiltX, 0deg)) rotateY(var(--tiltY, 0deg))`,
+                    transformStyle: 'preserve-3d',
+                    animation: `gentleFloat 4.2s ease-in-out infinite alternate ${delay}s`,
+                    willChange: 'transform',
+                  }}
+                  onMouseEnter={() => setActiveTooltip(tool)}
+                  onMouseLeave={() => setActiveTooltip(null)}
+                >
+                  {/* Faint Thick Cube Side Slab (translateZ -14px) */}
+                  <div
+                    className="absolute inset-0 rounded-2xl bg-[#090909] border border-black/80 pointer-events-none"
+                    style={{
+                      transform: 'translateZ(-14px)',
+                      boxShadow: '0 16px 36px rgba(0,0,0,0.85)',
+                    }}
+                  />
+
+                  {/* Dark Glass Face (gradient 145deg, 1px highlight border, inner glow) */}
+                  <div
+                    className="absolute inset-0 rounded-2xl border-t border-l border-white/14 border-r-black/50 border-b-black/60 group-hover:border-[#ff5a1f]/80 transition-colors pointer-events-none"
+                    style={{
+                      background: 'linear-gradient(145deg, #1c1c1c 0%, #0d0d0d 100%)',
+                      boxShadow:
+                        'inset 0 1px 1px rgba(255,255,255,0.12), inset 0 -1px 2px rgba(0,0,0,0.8), inset -2px 0 8px rgba(255,90,31,0.25)',
+                    }}
+                  />
+
+                  {/* Icon & Label */}
+                  <div
+                    className={`relative z-10 ${
+                      isMain ? 'w-8 h-8 sm:w-10 sm:h-10' : 'w-6 h-6 sm:w-7 sm:h-7'
+                    } text-white/90 group-hover:text-[#ff5a1f] group-hover:scale-108 transition-all duration-200`}
+                    dangerouslySetInnerHTML={{ __html: tool.svg }}
+                  />
+                  <span className="relative z-10 text-[9px] sm:text-[10px] font-mono tracking-wider text-neutral-300 mt-1.5 truncate max-w-[85px] group-hover:text-white transition-colors">
+                    {tool.name}
+                  </span>
+
+                  {/* Interactive Tooltip Card ("What I use it for") */}
+                  {activeTooltip?.name === tool.name && (
+                    <div
+                      className="absolute -top-14 inset-x-[-30px] z-50 pointer-events-none flex flex-col items-center animate-[tooltipPop_0.2s_ease-out]"
+                      style={{ transform: 'translateZ(50px)' }}
+                    >
+                      <div className="bg-[#121212]/95 border border-[#ff5a1f]/50 px-3 py-1.5 rounded-lg shadow-[0_10px_25px_rgba(0,0,0,0.9)] backdrop-blur-md text-center max-w-[170px]">
+                        <p className="text-[10px] font-mono font-bold text-[#ff5a1f] uppercase tracking-wider">
+                          {tool.name}
+                        </p>
+                        <p className="text-[9px] text-neutral-300 leading-tight mt-0.5">
+                          {tool.description}
+                        </p>
+                      </div>
+                      <div className="w-2 h-2 bg-[#121212] border-r border-b border-[#ff5a1f]/50 rotate-45 -mt-1" />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ── Right 3D Glass Tool Tiles Group (rotateY: -22deg) ──────── */}
+          <div
+            ref={rightGroupRef}
+            className="absolute right-[2.5vw] sm:right-[5vw] top-[25vh] sm:top-[27vh] grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 z-30"
+            style={{
+              transform: 'rotateY(-22deg)',
+              transformStyle: 'preserve-3d',
+              willChange: 'transform',
+            }}
+          >
+            {rightTools.map((tool, idx) => {
+              const isMain = tool.isMain;
+              const staggeredZ = isMain ? 45 : (idx % 3) * 18 - 18;
+              const delay = idx * 0.22 + 0.15;
+
+              return (
+                <div
+                  key={tool.name}
+                  className={`tool-glass-tile relative group rounded-2xl p-2.5 sm:p-3 flex flex-col items-center justify-center cursor-pointer transition-all duration-300 ${
+                    isMain
+                      ? 'w-[88px] h-[88px] sm:w-[114px] sm:h-[114px]'
+                      : 'w-[74px] h-[74px] sm:w-[92px] sm:h-[92px]'
+                  }`}
+                  style={{
+                    transform: `translate3d(0, 0, ${staggeredZ}px) rotateX(var(--tiltX, 0deg)) rotateY(var(--tiltY, 0deg))`,
+                    transformStyle: 'preserve-3d',
+                    animation: `gentleFloat 4.2s ease-in-out infinite alternate ${delay}s`,
+                    willChange: 'transform',
+                  }}
+                  onMouseEnter={() => setActiveTooltip(tool)}
+                  onMouseLeave={() => setActiveTooltip(null)}
+                >
+                  {/* Faint Thick Cube Side Slab (translateZ -14px) */}
+                  <div
+                    className="absolute inset-0 rounded-2xl bg-[#090909] border border-black/80 pointer-events-none"
+                    style={{
+                      transform: 'translateZ(-14px)',
+                      boxShadow: '0 16px 36px rgba(0,0,0,0.85)',
+                    }}
+                  />
+
+                  {/* Dark Glass Face (gradient 145deg, 1px highlight border, inner glow) */}
+                  <div
+                    className="absolute inset-0 rounded-2xl border-t border-l border-white/14 border-r-black/50 border-b-black/60 group-hover:border-[#ff5a1f]/80 transition-colors pointer-events-none"
+                    style={{
+                      background: 'linear-gradient(145deg, #1c1c1c 0%, #0d0d0d 100%)',
+                      boxShadow:
+                        'inset 0 1px 1px rgba(255,255,255,0.12), inset 0 -1px 2px rgba(0,0,0,0.8), inset 2px 0 8px rgba(255,90,31,0.25)',
+                    }}
+                  />
+
+                  {/* Icon & Label */}
+                  <div
+                    className={`relative z-10 ${
+                      isMain ? 'w-8 h-8 sm:w-10 sm:h-10' : 'w-6 h-6 sm:w-7 sm:h-7'
+                    } text-white/90 group-hover:text-[#ff5a1f] group-hover:scale-108 transition-all duration-200`}
+                    dangerouslySetInnerHTML={{ __html: tool.svg }}
+                  />
+                  <span className="relative z-10 text-[9px] sm:text-[10px] font-mono tracking-wider text-neutral-300 mt-1.5 truncate max-w-[85px] group-hover:text-white transition-colors">
+                    {tool.name}
+                  </span>
+
+                  {/* Interactive Tooltip Card ("What I use it for") */}
+                  {activeTooltip?.name === tool.name && (
+                    <div
+                      className="absolute -top-14 inset-x-[-30px] z-50 pointer-events-none flex flex-col items-center animate-[tooltipPop_0.2s_ease-out]"
+                      style={{ transform: 'translateZ(50px)' }}
+                    >
+                      <div className="bg-[#121212]/95 border border-[#ff5a1f]/50 px-3 py-1.5 rounded-lg shadow-[0_10px_25px_rgba(0,0,0,0.9)] backdrop-blur-md text-center max-w-[170px]">
+                        <p className="text-[10px] font-mono font-bold text-[#ff5a1f] uppercase tracking-wider">
+                          {tool.name}
+                        </p>
+                        <p className="text-[9px] text-neutral-300 leading-tight mt-0.5">
+                          {tool.description}
+                        </p>
+                      </div>
+                      <div className="w-2 h-2 bg-[#121212] border-r border-b border-[#ff5a1f]/50 rotate-45 -mt-1" />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
 
-      {/* Bottom Ground Shadow */}
-      <div className="absolute bottom-0 left-0 w-full h-28 bg-gradient-to-t from-[#050505] to-transparent z-25 pointer-events-none" />
+      {/* ── Layer 3: Parallax NEAR (Out-of-Focus Orange Bokeh Orbs) ───── */}
+      <div
+        ref={parallaxNearRef}
+        className="absolute inset-0 pointer-events-none z-35 will-change-transform"
+      >
+        <div className="absolute top-[20%] left-[8%] w-24 h-24 rounded-full bg-[#ff5a1f]/12 filter blur-[20px]" />
+        <div className="absolute bottom-[28%] right-[10%] w-32 h-32 rounded-full bg-[#ffaa44]/10 filter blur-[28px]" />
+      </div>
+
+      {/* ── Soft Orange Light Flash Overlay ───────────────────────────── */}
+      <div
+        ref={flashOverlayRef}
+        className="absolute inset-0 bg-gradient-to-t from-[#ff5a1f] via-amber-500 to-transparent pointer-events-none z-45 opacity-0 mix-blend-screen"
+      />
+
+      {/* ── Fade to Black Overlay at End of Pin ───────────────────────── */}
+      <div
+        ref={fadeOverlayRef}
+        className="absolute inset-0 bg-[#050505] pointer-events-none z-50 opacity-0"
+      />
+
+      {/* ── Scoped CSS Keyframes ──────────────────────────────────────── */}
+      <style>{`
+        @keyframes gentleFloat {
+          0% { transform: translateY(-4px) rotateZ(-1deg); }
+          100% { transform: translateY(4px) rotateZ(1deg); }
+        }
+        @keyframes fogDrift {
+          0% { transform: translateX(0); }
+          50% { transform: translateX(-20%); }
+          100% { transform: translateX(0); }
+        }
+        @keyframes tooltipPop {
+          0% { opacity: 0; transform: translateZ(50px) translateY(6px); }
+          100% { opacity: 1; transform: translateZ(50px) translateY(0); }
+        }
+      `}</style>
     </section>
   );
 }

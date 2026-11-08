@@ -14,6 +14,7 @@ dist-ssr
 tmp_*
 tmp_cdp_profile
 capture_with_cdp.js
+scratch/
 
 # Editor directories and files
 .vscode/*
