@@ -10,14 +10,12 @@
     "card-photo": "node scripts/make-card-photo.mjs"
   },
   "dependencies": {
-    "@img/sharp-win32-x64": "^0.35.5",
     "framer-motion": "^11.11.17",
     "gsap": "^3.12.5",
     "lenis": "^1.1.18",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "sharp": "^0.35.5"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",
@@ -25,6 +23,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
+    "sharp": "^0.35.5",
     "tailwindcss": "^3.4.16",
     "vite": "^6.0.1"
   }
