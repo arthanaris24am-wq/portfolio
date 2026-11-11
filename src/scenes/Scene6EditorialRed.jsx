@@ -88,21 +88,17 @@ export default function Scene6EditorialRed() {
   const whiteWipeRef = useRef(null);
   const statsRef = useRef([]);
 
-  // Interactive Card Cursor "VIEW" Follower
+  // Interactive Card Cursor "VIEW" Follower & Active Card Ref (zero setState on scroll)
   const cursorFollowerRef = useRef(null);
-  const [activeProjectIndex, setActiveProjectIndex] = useState(0);
+  const projectCardsRef = useRef([]);
+  const activeProjIdxRef = useRef(0);
+  const isVisibleRef = useRef(false);
 
-  // Synchronous Viewport Detection to pause dust loop when offscreen
-  const isSceneInViewport = () => {
-    if (!containerRef.current) return false;
-    const rect = containerRef.current.getBoundingClientRect();
-    return rect.bottom > -100 && rect.top < window.innerHeight + 100;
-  };
-
-  // ─── Dust Canvas Animation for Projector Beam ───────────────────────
+  // ─── Dust Canvas Animation for Projector Beam (True IO Pausing) ─────
   useEffect(() => {
     const canvas = dustCanvasRef.current;
-    if (!canvas) return;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
 
     const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     const resize = () => {
@@ -115,7 +111,7 @@ export default function Scene6EditorialRed() {
     const W = () => canvas.offsetWidth;
     const H = () => canvas.offsetHeight;
 
-    const dots = Array.from({ length: 45 }, () => ({
+    const dots = Array.from({ length: 40 }, () => ({
       x: Math.random() * W(),
       y: Math.random() * H(),
       vx: (Math.random() - 0.3) * 0.4,
@@ -125,32 +121,60 @@ export default function Scene6EditorialRed() {
     }));
 
     function drawDust() {
-      if (isSceneInViewport()) {
-        ctx.clearRect(0, 0, W(), H());
-        dots.forEach((d) => {
-          d.x += d.vx;
-          d.y += d.vy;
-          if (d.y < 0) {
-            d.y = H();
-            d.x = Math.random() * W();
-          }
-          if (d.x < 0 || d.x > W()) {
-            d.x = Math.random() * W();
-          }
+      dustRafRef.current = null;
+      if (!isVisibleRef.current || document.hidden) return;
 
-          ctx.beginPath();
-          ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(255,220,120,${d.a * 0.6})`;
-          ctx.fill();
-        });
+      const cw = W();
+      const ch = H();
+      ctx.clearRect(0, 0, cw, ch);
+      ctx.fillStyle = 'rgba(255, 220, 120, 0.38)';
+      ctx.beginPath();
+      for (let i = 0; i < dots.length; i++) {
+        const d = dots[i];
+        d.x += d.vx;
+        d.y += d.vy;
+        if (d.y < 0) {
+          d.y = ch;
+          d.x = Math.random() * cw;
+        }
+        if (d.x < 0 || d.x > cw) {
+          d.x = Math.random() * cw;
+        }
+        ctx.moveTo(d.x + d.r, d.y);
+        ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
       }
+      ctx.fill();
+
       dustRafRef.current = requestAnimationFrame(drawDust);
     }
-    dustRafRef.current = requestAnimationFrame(drawDust);
+
+    const startDust = () => {
+      if (!dustRafRef.current && isVisibleRef.current && !document.hidden) {
+        dustRafRef.current = requestAnimationFrame(drawDust);
+      }
+    };
+
+    const stopDust = () => {
+      if (dustRafRef.current) {
+        cancelAnimationFrame(dustRafRef.current);
+        dustRafRef.current = null;
+      }
+    };
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        isVisibleRef.current = entry.isIntersecting;
+        if (entry.isIntersecting) startDust();
+        else stopDust();
+      },
+      { threshold: 0.01 }
+    );
+    observer.observe(container);
 
     window.addEventListener('resize', resize);
     return () => {
-      cancelAnimationFrame(dustRafRef.current);
+      observer.disconnect();
+      stopDust();
       window.removeEventListener('resize', resize);
     };
   }, []);
@@ -161,34 +185,27 @@ export default function Scene6EditorialRed() {
     if (isMobile) return;
 
     const follower = cursorFollowerRef.current;
-    const cards = containerRef.current?.querySelectorAll('.editorial-project-card');
+    let lastTiltedCard = null;
 
     const handleMouseMove = (e) => {
-      if (!isSceneInViewport()) return;
+      if (!isVisibleRef.current) return;
 
-      // Update Floating VIEW Cursor Follower
       if (follower) {
         follower.style.transform = `translate3d(${e.clientX - 28}px, ${e.clientY - 28}px, 0)`;
       }
 
-      // 3D Card Tilt (max 6deg)
-      if (cards) {
-        cards.forEach((card) => {
-          const rect = card.getBoundingClientRect();
-          if (
-            e.clientX >= rect.left &&
-            e.clientX <= rect.right &&
-            e.clientY >= rect.top &&
-            e.clientY <= rect.bottom
-          ) {
-            const dx = (e.clientX - (rect.left + rect.width / 2)) / (rect.width / 2);
-            const dy = (e.clientY - (rect.top + rect.height / 2)) / (rect.height / 2);
-            card.style.transform = `perspective(800px) rotateX(${-dy * 6}deg) rotateY(${dx * 6}deg) scale3d(1.04, 1.04, 1.04)`;
-          } else {
-            card.style.transform = 'perspective(800px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)';
-          }
-        });
+      const hoveredCard = e.target?.closest?.('.editorial-project-card') || null;
+      if (lastTiltedCard && lastTiltedCard !== hoveredCard) {
+        lastTiltedCard.style.transform = 'perspective(800px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)';
       }
+
+      if (hoveredCard) {
+        const rect = hoveredCard.getBoundingClientRect();
+        const dx = (e.clientX - (rect.left + rect.width / 2)) / (rect.width / 2);
+        const dy = (e.clientY - (rect.top + rect.height / 2)) / (rect.height / 2);
+        hoveredCard.style.transform = `perspective(800px) rotateX(${-dy * 6}deg) rotateY(${dx * 6}deg) scale3d(1.04, 1.04, 1.04)`;
+      }
+      lastTiltedCard = hoveredCard;
     };
 
     window.addEventListener('mousemove', handleMouseMove, { passive: true });
@@ -208,7 +225,7 @@ export default function Scene6EditorialRed() {
           start: 'top top',
           end: '+=320%',
           pin: true,
-          scrub: 0.3,
+          scrub: 0.2,
           anticipatePin: 1,
         },
       });
@@ -291,7 +308,19 @@ export default function Scene6EditorialRed() {
                 const prog = this.progress();
                 const total = projectsList.length;
                 const idx = Math.min(Math.floor(prog * total), total - 1);
-                setActiveProjectIndex(idx);
+                if (idx !== activeProjIdxRef.current) {
+                  const prevCard = projectCardsRef.current[activeProjIdxRef.current];
+                  const nextCard = projectCardsRef.current[idx];
+                  if (prevCard) {
+                    prevCard.classList.remove('scale-[1.04]', 'opacity-100');
+                    prevCard.classList.add('scale-100', 'opacity-75');
+                  }
+                  if (nextCard) {
+                    nextCard.classList.add('scale-[1.04]', 'opacity-100');
+                    nextCard.classList.remove('scale-100', 'opacity-75');
+                  }
+                  activeProjIdxRef.current = idx;
+                }
               },
             },
             0.52
@@ -384,14 +413,7 @@ export default function Scene6EditorialRed() {
           }}
         />
 
-        {/* Film Grain & Soft Luxury Vignette */}
-        <div
-          className="absolute inset-0 pointer-events-none z-30 opacity-[0.06]"
-          style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
-            backgroundSize: '200px 200px',
-          }}
-        />
+        {/* Soft Luxury Vignette */}
         <div
           className="absolute inset-0 pointer-events-none z-30"
           style={{
@@ -539,12 +561,13 @@ export default function Scene6EditorialRed() {
             className="flex items-center gap-6 sm:gap-8 px-6 sm:px-14 will-change-transform"
           >
             {projectsList.map((project, idx) => {
-              const isActive = idx === activeProjectIndex;
+              const isActive = idx === 0;
 
               return (
                 <div
                   key={project.id}
-                  className={`editorial-project-card relative rounded-2xl bg-[#0e0e0e]/90 border border-white/15 p-6 sm:p-7 flex flex-col justify-between shrink-0 shadow-2xl transition-all duration-300 ${
+                  ref={(el) => (projectCardsRef.current[idx] = el)}
+                  className={`editorial-project-card relative rounded-2xl bg-[#0e0e0e]/90 border border-white/15 p-6 sm:p-7 flex flex-col justify-between shrink-0 shadow-2xl transition-opacity duration-200 ${
                     isActive ? 'scale-[1.04] opacity-100' : 'scale-100 opacity-75'
                   }`}
                   style={{

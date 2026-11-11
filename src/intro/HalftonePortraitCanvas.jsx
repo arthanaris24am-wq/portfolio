@@ -26,6 +26,14 @@ export default function HalftonePortraitCanvas({
   const dataRef = useRef(null);
   const imgRef = useRef(null);
   const imgAspectRef = useRef(576 / 566);
+  const assembleProgressRef = useRef(assembleProgress);
+  const isAssembledRef = useRef(isAssembled);
+
+  useEffect(() => {
+    assembleProgressRef.current = assembleProgress;
+    isAssembledRef.current = isAssembled;
+    canvasRef.current?.__scheduleHalftoneRender?.();
+  }, [assembleProgress, isAssembled]);
 
   // Measure and set frame dimensions (~80vh desktop, ~60vh / max 88vw mobile)
   const updateSize = useCallback(() => {
@@ -264,16 +272,18 @@ export default function HalftonePortraitCanvas({
     }
   }, []);
 
-  // 60fps Canvas Render Loop with Path Batching & Retina DPR
+  // 60fps Canvas Render Loop with On-Demand Pausing & Path Batching
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !imageLoaded || !dataRef.current) return;
 
     const ctx = canvas.getContext('2d');
-    let animationFrameId;
+    let animationFrameId = null;
+    let isInViewport = true;
+    let drewSettledFrame = false;
 
-    // Retina / Full device resolution (capped at 2x)
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // Retina / Full device resolution (capped at 1.5x for low-end smoothness)
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     const w = frameDimensions.width;
     const h = frameDimensions.height;
 
@@ -296,11 +306,14 @@ export default function HalftonePortraitCanvas({
     const spotlightRSq = spotlightR * spotlightR;
 
     const render = () => {
+      animationFrameId = null;
+      if (!isInViewport || document.hidden) return;
+
       ctx.clearRect(0, 0, w, h);
 
-      const progress = Math.min(Math.max(assembleProgress, 0), 1);
+      const progress = Math.min(Math.max(assembleProgressRef.current, 0), 1);
       const easedProgress = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
-      const ready = isAssembled || progress >= 0.95;
+      const ready = isAssembledRef.current || progress >= 0.95;
       const radiusScale = 0.35 + easedProgress * 0.65;
 
       const mx = mouseRef.current.x;
@@ -352,13 +365,22 @@ export default function HalftonePortraitCanvas({
         ctx.fill();
       }
 
-      // Draw subtle ember orange accent dots on perimeter corners
+      // Draw subtle ember orange accent dots on perimeter corners (no expensive shadowBlur)
       if (progress > 0.85 && accentIndices.length > 0) {
-        ctx.fillStyle = '#ff5a1f';
-        ctx.shadowBlur = 5;
-        ctx.shadowColor = '#ff5a1f';
+        ctx.fillStyle = 'rgba(255, 90, 31, 0.28)';
         ctx.beginPath();
+        for (let k = 0; k < accentIndices.length; k++) {
+          const i = accentIndices[k];
+          const tx = relX[i] * w;
+          const ty = relY[i] * h;
+          const r = baseRadius[i] * radiusScale * 1.9;
+          ctx.moveTo(tx + r, ty);
+          ctx.arc(tx, ty, r, 0, Math.PI * 2);
+        }
+        ctx.fill();
 
+        ctx.fillStyle = '#ff5a1f';
+        ctx.beginPath();
         for (let k = 0; k < accentIndices.length; k++) {
           const i = accentIndices[k];
           const tx = relX[i] * w;
@@ -367,20 +389,50 @@ export default function HalftonePortraitCanvas({
           ctx.moveTo(tx + r, ty);
           ctx.arc(tx, ty, r, 0, Math.PI * 2);
         }
-
         ctx.fill();
-        ctx.shadowBlur = 0;
       }
 
+      // Pause loop completely once settled & idle until pointer interacts
+      if (ready && !inBox) {
+        drewSettledFrame = true;
+        return;
+      }
+
+      drewSettledFrame = false;
       animationFrameId = requestAnimationFrame(render);
     };
+
+    const scheduleRender = () => {
+      if (!animationFrameId && isInViewport && !document.hidden) {
+        drewSettledFrame = false;
+        animationFrameId = requestAnimationFrame(render);
+      }
+    };
+
+    canvas.__scheduleHalftoneRender = scheduleRender;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        isInViewport = entry.isIntersecting;
+        if (isInViewport) {
+          if (!drewSettledFrame || !isAssembledRef.current) scheduleRender();
+        } else if (animationFrameId) {
+          cancelAnimationFrame(animationFrameId);
+          animationFrameId = null;
+        }
+      },
+      { threshold: 0.01 }
+    );
+    observer.observe(canvas);
 
     render();
 
     return () => {
-      cancelAnimationFrame(animationFrameId);
+      observer.disconnect();
+      delete canvas.__scheduleHalftoneRender;
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
     };
-  }, [imageLoaded, frameDimensions, assembleProgress, isAssembled]);
+  }, [imageLoaded, frameDimensions]);
 
   const handleMouseMove = (e) => {
     if (!containerRef.current) return;
@@ -390,10 +442,12 @@ export default function HalftonePortraitCanvas({
       y: e.clientY - rect.top,
       inBox: true,
     };
+    canvasRef.current?.__scheduleHalftoneRender?.();
   };
 
   const handleMouseLeave = () => {
     mouseRef.current = { x: -2000, y: -2000, inBox: false };
+    canvasRef.current?.__scheduleHalftoneRender?.();
   };
 
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;

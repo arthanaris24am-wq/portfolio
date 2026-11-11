@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { journeyData } from '../data/content';
@@ -30,17 +30,73 @@ export default function Scene5FaceCollage() {
   const cardsRef = useRef([]);
   const fadeOverlayRef = useRef(null);
   const floorGlowRef = useRef(null);
-
-  const [activeIndex, setActiveIndex] = useState(0);
+  const activeIdxRef = useRef(0);
 
   const entries = useMemo(() => journeyData?.entries || [], []);
   const count = entries.length;
 
   useEffect(() => {
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const container = containerRef.current;
+    if (!container) return;
+
+    // Precompute card anchor points in SVG 1440x900 viewBox space (zero DOM reads on scroll)
+    let cardAnchors = [];
+    const computeCardAnchors = () => {
+      const cw = container.offsetWidth || 1440;
+      const ch = container.offsetHeight || 900;
+      const containerRect = container.getBoundingClientRect();
+      cardAnchors = cardsRef.current.map((card) => {
+        if (!card) return { lx: 720, rx: 720, ty: 320 };
+        const rect = card.getBoundingClientRect();
+        const lx = (((rect.left - containerRect.left) + 20) / cw) * 1440;
+        const rx = (((rect.right - containerRect.left) - 20) / cw) * 1440;
+        const ty = ((rect.top - containerRect.top) / ch) * 900;
+        return { lx, rx, ty };
+      });
+    };
+
+    const setCardActiveDOM = (idx, active) => {
+      const card = cardsRef.current[idx];
+      if (!card) return;
+      const yearEl = card.querySelector('.timeline-year');
+      const titleEl = card.querySelector('.timeline-title');
+      const pipEl = card.querySelector('.timeline-pip');
+      const imgEl = card.querySelector('.timeline-img');
+      if (active) {
+        card.classList.add('border-[#ff5a1f]', 'shadow-[0_0_24px_rgba(255,90,31,0.38)]', 'bg-[#141414]/95');
+        card.classList.remove('border-white/10', 'shadow-2xl', 'bg-[#0c0c0c]/85');
+        if (yearEl) {
+          yearEl.classList.add('text-[#ff5a1f]');
+          yearEl.classList.remove('text-neutral-400');
+        }
+        if (titleEl) {
+          titleEl.classList.add('text-white');
+          titleEl.classList.remove('text-neutral-300');
+        }
+        if (pipEl) pipEl.style.opacity = '1';
+        if (imgEl) imgEl.style.opacity = '1';
+      } else {
+        card.classList.remove('border-[#ff5a1f]', 'shadow-[0_0_24px_rgba(255,90,31,0.38)]', 'bg-[#141414]/95');
+        card.classList.add('border-white/10', 'shadow-2xl', 'bg-[#0c0c0c]/85');
+        if (yearEl) {
+          yearEl.classList.remove('text-[#ff5a1f]');
+          yearEl.classList.add('text-neutral-400');
+        }
+        if (titleEl) {
+          titleEl.classList.remove('text-white');
+          titleEl.classList.add('text-neutral-300');
+        }
+        if (pipEl) pipEl.style.opacity = '0';
+        if (imgEl) imgEl.style.opacity = '0.65';
+      }
+    };
+
+    computeCardAnchors();
+    setCardActiveDOM(0, true);
+    window.addEventListener('resize', computeCardAnchors, { passive: true });
 
     const ctx = gsap.context(() => {
-      const isMobile = window.innerWidth < 768;
       const path = arcPathRef.current;
       const totalLen = path?.getTotalLength() || 1200;
 
@@ -51,40 +107,40 @@ export default function Scene5FaceCollage() {
           start: 'top top',
           end: '+=240%',
           pin: true,
-          scrub: 0.3,
+          scrub: 0.2,
+          anticipatePin: 1,
+          onEnter: computeCardAnchors,
           onUpdate: (self) => {
             const progress = self.progress;
-            // Determine active card based on progress (0 -> count - 1)
             const idx = Math.min(
               count - 1,
               Math.max(0, Math.floor(progress * count * 1.05))
             );
-            setActiveIndex(idx);
 
-            // Move light node along SVG arc
+            // Only touch classes when active card index changes (zero setState!)
+            if (idx !== activeIdxRef.current) {
+              setCardActiveDOM(activeIdxRef.current, false);
+              setCardActiveDOM(idx, true);
+              activeIdxRef.current = idx;
+            }
+
+            // Move light node along SVG arc using pure precomputed viewBox coords
             if (path && lightNodeRef.current) {
               const pt = path.getPointAtLength(progress * totalLen);
-              gsap.set(lightNodeRef.current, { cx: pt.x, cy: pt.y });
+              lightNodeRef.current.setAttribute('cx', pt.x);
+              lightNodeRef.current.setAttribute('cy', pt.y);
 
-              // Target card top center
-              const targetCard = cardsRef.current[idx];
-              if (targetCard && beamLineLeftRef.current && beamLineRightRef.current) {
-                const rect = targetCard.getBoundingClientRect();
-                const containerRect = containerRef.current.getBoundingClientRect();
-                const cardLeft = rect.left - containerRect.left;
-                const cardRight = rect.right - containerRect.left;
-                const cardTop = rect.top - containerRect.top;
-
-                // Update light lines
+              const anchor = cardAnchors[idx];
+              if (anchor && beamLineLeftRef.current && beamLineRightRef.current) {
                 beamLineLeftRef.current.setAttribute('x1', pt.x);
                 beamLineLeftRef.current.setAttribute('y1', pt.y);
-                beamLineLeftRef.current.setAttribute('x2', cardLeft + 20);
-                beamLineLeftRef.current.setAttribute('y2', cardTop);
+                beamLineLeftRef.current.setAttribute('x2', anchor.lx);
+                beamLineLeftRef.current.setAttribute('y2', anchor.ty);
 
                 beamLineRightRef.current.setAttribute('x1', pt.x);
                 beamLineRightRef.current.setAttribute('y1', pt.y);
-                beamLineRightRef.current.setAttribute('x2', cardRight - 20);
-                beamLineRightRef.current.setAttribute('y2', cardTop);
+                beamLineRightRef.current.setAttribute('x2', anchor.rx);
+                beamLineRightRef.current.setAttribute('y2', anchor.ty);
               }
             }
           },
@@ -150,7 +206,10 @@ export default function Scene5FaceCollage() {
       }
     }, containerRef);
 
-    return () => ctx.revert();
+    return () => {
+      window.removeEventListener('resize', computeCardAnchors);
+      ctx.revert();
+    };
   }, [entries, count]);
 
   return (
@@ -160,15 +219,6 @@ export default function Scene5FaceCollage() {
       className="relative w-full h-screen bg-[#050505] overflow-hidden select-none"
       style={{ willChange: 'transform', contain: 'layout paint' }}
     >
-      {/* ── Film Grain Overlay ───────────────────────────────────────── */}
-      <div
-        className="absolute inset-0 pointer-events-none z-30 opacity-[0.03]"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
-          backgroundSize: '200px 200px',
-        }}
-      />
-
       {/* ── 1. Top-Left Title: Stacked Tracked Serif Caps ────────────── */}
       <div className="absolute top-8 sm:top-10 left-6 sm:left-12 z-30 flex flex-col pointer-events-none">
         <p className="font-mono text-[9px] tracking-[0.3em] text-[#ff5a1f] uppercase mb-1">
@@ -246,7 +296,8 @@ export default function Scene5FaceCollage() {
           <img
             src="/images/scenes/silhouette.webp"
             alt="Timeline Figure"
-            className="h-full w-auto object-contain drop-shadow-[0_0_14px_rgba(255,90,31,0.4)]"
+            decoding="async"
+            className="h-full w-auto object-contain"
             onError={(e) => {
               e.currentTarget.style.display = 'none';
               e.currentTarget.nextSibling.style.display = 'block';
@@ -264,31 +315,26 @@ export default function Scene5FaceCollage() {
           </svg>
         </div>
 
-        {/* ── 3. Timeline Arc (Rainbow SVG Path) ───────────────────────── */}
+        {/* ── 3. Timeline Arc (Rainbow SVG Path, zero feGaussianBlur) ──── */}
         <svg
           className="absolute inset-0 w-full h-full pointer-events-none z-20"
           viewBox="0 0 1440 900"
           preserveAspectRatio="none"
         >
-          <defs>
-            <filter id="arc-glow" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="5" result="blur" />
-              <feComposite in="SourceGraphic" in2="blur" operator="over" />
-            </filter>
-            <linearGradient id="beamGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="rgba(255, 140, 50, 0.7)" />
-              <stop offset="100%" stopColor="rgba(255, 90, 31, 0)" />
-            </linearGradient>
-          </defs>
-
-          {/* Glowing Rainbow Arc Path */}
+          {/* Glowing Rainbow Arc Path (layered strokes for soft bloom without SVG filter) */}
           <path
             d="M 160 490 Q 720 160 1280 490"
             fill="none"
-            stroke="rgba(255, 90, 31, 0.35)"
-            strokeWidth="8"
+            stroke="rgba(255, 90, 31, 0.14)"
+            strokeWidth="14"
             strokeLinecap="round"
-            filter="url(#arc-glow)"
+          />
+          <path
+            d="M 160 490 Q 720 160 1280 490"
+            fill="none"
+            stroke="rgba(255, 90, 31, 0.3)"
+            strokeWidth="6"
+            strokeLinecap="round"
           />
           <path
             ref={arcPathRef}
@@ -328,7 +374,8 @@ export default function Scene5FaceCollage() {
             cy="490"
             r="6"
             fill="#ffffff"
-            className="drop-shadow-[0_0_12px_#ff5a1f]"
+            stroke="rgba(255, 90, 31, 0.45)"
+            strokeWidth="6"
           />
         </svg>
 
@@ -338,7 +385,6 @@ export default function Scene5FaceCollage() {
           style={{ transformStyle: 'preserve-3d' }}
         >
           {entries.map((item, idx) => {
-            const isActive = idx === activeIndex;
             // Angle rotates from +32deg on left to -32deg on right
             const angleY = count > 1 ? 32 - (idx / (count - 1)) * 64 : 0;
             // Middle cards slightly farther back in Z
@@ -348,11 +394,7 @@ export default function Scene5FaceCollage() {
               <div
                 key={item.year}
                 ref={(el) => (cardsRef.current[idx] = el)}
-                className={`relative shrink-0 rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between transition-all duration-300 ${
-                  isActive
-                    ? 'border-[#ff5a1f] shadow-[0_0_28px_rgba(255,90,31,0.45)] bg-[#141414]/95 scale-105'
-                    : 'border-white/10 shadow-2xl bg-[#0c0c0c]/85'
-                } border w-[190px] sm:w-[220px] h-[270px] sm:h-[300px]`}
+                className="relative shrink-0 rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between border border-white/10 shadow-2xl bg-[#0c0c0c]/85 w-[190px] sm:w-[220px] h-[270px] sm:h-[300px]"
                 style={{
                   transform: `rotateY(${angleY}deg) translateZ(${distZ}px)`,
                   transformStyle: 'preserve-3d',
@@ -362,11 +404,7 @@ export default function Scene5FaceCollage() {
               >
                 {/* Year Header */}
                 <div className="flex items-center justify-between pb-2 border-b border-white/5">
-                  <span
-                    className={`font-['Anton'] text-xl sm:text-2xl tracking-wider leading-none ${
-                      isActive ? 'text-[#ff5a1f]' : 'text-neutral-400'
-                    }`}
-                  >
+                  <span className="timeline-year font-['Anton'] text-xl sm:text-2xl tracking-wider leading-none text-neutral-400">
                     {item.year}
                   </span>
                   <span className="font-mono text-[8px] text-neutral-500 uppercase tracking-widest">
@@ -374,28 +412,19 @@ export default function Scene5FaceCollage() {
                   </span>
                 </div>
 
-                {/* Grayscale Thumbnail Photo */}
+                {/* Thumbnail Photo */}
                 <div className="w-full h-[95px] sm:h-[110px] rounded-lg overflow-hidden bg-neutral-900 border border-white/5 my-2 relative">
                   <img
                     src={item.image || `/images/scenes/face-tiles/${(idx % 6) + 1}.jpg`}
                     alt={item.title}
-                    className="w-full h-full object-cover grayscale contrast-125 transition-all duration-300"
-                    style={{
-                      filter: isActive
-                        ? 'grayscale(30%) contrast(115%) brightness(1.05)'
-                        : 'grayscale(100%) brightness(0.7)',
-                    }}
+                    className="timeline-img w-full h-full object-cover grayscale contrast-125 opacity-65"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
                 </div>
 
                 {/* Title & 2 Tiny Lines of Text */}
                 <div className="pt-1">
-                  <h4
-                    className={`font-mono text-xs font-bold leading-snug truncate ${
-                      isActive ? 'text-white' : 'text-neutral-300'
-                    }`}
-                  >
+                  <h4 className="timeline-title font-mono text-xs font-bold leading-snug truncate text-neutral-300">
                     {item.title}
                   </h4>
                   <p className="text-[10px] text-neutral-400 mt-1 line-clamp-2 leading-relaxed">
@@ -404,9 +433,10 @@ export default function Scene5FaceCollage() {
                 </div>
 
                 {/* Active Indicator Pip */}
-                {isActive && (
-                  <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-[#ff5a1f] shadow-[0_0_8px_#ff5a1f]" />
-                )}
+                <div
+                  className="timeline-pip absolute -top-1.5 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-[#ff5a1f] shadow-[0_0_8px_#ff5a1f]"
+                  style={{ opacity: 0 }}
+                />
               </div>
             );
           })}

@@ -229,7 +229,7 @@ export default function Scene2Poster() {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
-      for (let i = 1; i < SEG; i++) {
+      for (let i = 1; i < SEG; i += 2) {
         const nA = nodes[i - 1];
         const nB = nodes[i];
         const midX = (nA.x + nB.x) / 2;
@@ -242,7 +242,7 @@ export default function Scene2Poster() {
         ctx.save();
         ctx.translate(midX, midY);
         ctx.rotate(angle);
-        ctx.fillText(words[(i - 1) % words.length], 0, 0);
+        ctx.fillText(words[((i - 1) >> 1) % words.length], 0, 0);
         ctx.restore();
       }
 
@@ -297,18 +297,29 @@ export default function Scene2Poster() {
       card.style.transform = `translate3d(${cardLeft}px, ${cardTop}px, 0) rotate(${angleDeg}deg)`;
     }
 
-    function isSceneInViewport() {
-      if (!container) return false;
-      const rect = container.getBoundingClientRect();
-      return rect.bottom > -100 && rect.top < window.innerHeight + 100;
-    }
-
     function loop() {
-      if (isSceneInViewport()) {
-        simulate();
+      rafRef.current = null;
+      if (!isVisibleRef.current || document.hidden) return;
+      simulate();
+      const end = nodes[SEG];
+      const moved = Math.abs(end.x - end.oldX) + Math.abs(end.y - end.oldY);
+      if (dragging || cardStateRef.current !== 'hanging' || moved > 0.03) {
         draw();
       }
       rafRef.current = requestAnimationFrame(loop);
+    }
+
+    function startLoop() {
+      if (!rafRef.current && isVisibleRef.current && !document.hidden) {
+        rafRef.current = requestAnimationFrame(loop);
+      }
+    }
+
+    function stopLoop() {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
     }
 
     // ── Mouse & Touch Drag Handlers ─────────────────────────────────
@@ -380,12 +391,17 @@ export default function Scene2Poster() {
       cardH,
       targetRopeLen,
       resetRope,
+      startLoop,
+      stopLoop,
     };
 
-    rafRef.current = requestAnimationFrame(loop);
+    // Draw initial settled frame and start rAF only if visible
+    simulate();
+    draw();
+    startLoop();
 
     return () => {
-      cancelAnimationFrame(rafRef.current);
+      stopLoop();
       window.removeEventListener('mousedown', handleStart);
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleEnd);
@@ -395,7 +411,7 @@ export default function Scene2Poster() {
     };
   }, []);
 
-  // ─── Intersection Observer to Pause Loop When Offscreen ────────────
+  // ─── Intersection Observer to Pause Loop Completely When Offscreen ───
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -403,8 +419,13 @@ export default function Scene2Poster() {
     const observer = new IntersectionObserver(
       ([entry]) => {
         isVisibleRef.current = entry.isIntersecting;
+        if (entry.isIntersecting) {
+          physicsRef.current?.startLoop?.();
+        } else {
+          physicsRef.current?.stopLoop?.();
+        }
       },
-      { threshold: 0.05 }
+      { threshold: 0.01 }
     );
 
     observer.observe(el);
@@ -434,12 +455,23 @@ export default function Scene2Poster() {
         start: 'top top',
         end: '+=180%',
         pin: true,
-        scrub: 0.3,
+        scrub: 0.2,
+        anticipatePin: 1,
         onEnter: () => {
           isVisibleRef.current = true;
+          physicsRef.current?.startLoop?.();
+        },
+        onEnterBack: () => {
+          isVisibleRef.current = true;
+          physicsRef.current?.startLoop?.();
+        },
+        onLeave: () => {
+          isVisibleRef.current = false;
+          physicsRef.current?.stopLoop?.();
         },
         onLeaveBack: () => {
           isVisibleRef.current = false;
+          physicsRef.current?.stopLoop?.();
         },
       });
     }, containerRef);
@@ -512,15 +544,6 @@ export default function Scene2Poster() {
       className="relative w-full h-screen bg-[#050505] overflow-hidden flex items-center select-none"
       style={{ willChange: 'transform', contain: 'layout paint' }}
     >
-      {/* ── Background Film Grain ───────────────────────────────────── */}
-      <div
-        className="absolute inset-0 pointer-events-none z-30 opacity-[0.03]"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
-          backgroundSize: '200px 200px',
-        }}
-      />
-
       {/* ── Left Side: Content & Buttons (Unchanged) ────────────────── */}
       <div className="relative z-10 flex flex-col justify-center pl-[6vw] pr-4 w-full md:w-1/2 py-8">
         <p

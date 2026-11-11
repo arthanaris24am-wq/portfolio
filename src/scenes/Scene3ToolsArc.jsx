@@ -62,6 +62,8 @@ export default function Scene3ToolsArc() {
 
   const isVisibleRef = useRef(false);
   const sparksRafRef = useRef(null);
+  const sparksControlRef = useRef({ start: null, stop: null });
+  const tileCacheRef = useRef([]);
   const mousePosRef = useRef({ x: 0, y: 0, targetX: 0, targetY: 0 });
 
   // Tools allocation (Desktop: 12 tools, Mobile: 6 tools)
@@ -70,17 +72,25 @@ export default function Scene3ToolsArc() {
   const leftTools = useMemo(() => tools.slice(0, 6), [tools]);
   const rightTools = useMemo(() => tools.slice(6, 12), [tools]);
 
-  // Synchronous Viewport Detection to pause rAF loops when offscreen
-  const isSceneInViewport = useCallback(() => {
-    if (!containerRef.current) return false;
-    const rect = containerRef.current.getBoundingClientRect();
-    return rect.bottom > -100 && rect.top < window.innerHeight + 100;
+  // Rebuild cached tile centers cleanly only on mount/enter/resize (zero DOM reads on mousemove/rAF)
+  const rebuildTileCache = useCallback(() => {
+    const tiles = containerRef.current?.querySelectorAll('.tool-glass-tile');
+    if (!tiles) return;
+    tileCacheRef.current = Array.from(tiles).map((el) => {
+      const rect = el.getBoundingClientRect();
+      return {
+        el,
+        cx: rect.left + rect.width / 2,
+        cy: rect.top + rect.height / 2,
+      };
+    });
   }, []);
 
   // ─── 1. Floor Sparks & Ribbon Particle Trail Canvas ─────────────────
   useEffect(() => {
     const canvas = sparksCanvasRef.current;
-    if (!canvas) return;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
 
     const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     let W = canvas.offsetWidth;
@@ -92,9 +102,10 @@ export default function Scene3ToolsArc() {
     ctx.scale(dpr, dpr);
 
     const isMobile = window.innerWidth < 768;
-    const sparkCount = isMobile ? 70 : 150;
+    const isLowCore = (navigator.hardwareConcurrency || 8) <= 4;
+    const sparkCount = isMobile ? 45 : isLowCore ? 70 : 110;
 
-    // 150 floor sparks in 2 size classes with twinkle and drift
+    // Floor sparks in 2 size classes with twinkle and drift
     const sparks = Array.from({ length: sparkCount }, () => ({
       x: Math.random() * W,
       y: H * 0.58 + Math.random() * (H * 0.42),
@@ -108,66 +119,120 @@ export default function Scene3ToolsArc() {
     }));
 
     function drawSparks() {
-      if (isSceneInViewport()) {
-        ctx.clearRect(0, 0, W, H);
+      sparksRafRef.current = null;
+      if (!isVisibleRef.current || document.hidden) return;
 
-        const mx = (mousePosRef.current.x + 1) * 0.5 * W;
-        const my = (mousePosRef.current.y + 1) * 0.5 * H;
+      ctx.clearRect(0, 0, W, H);
 
-        // Draw Twinkling Sparks with gentle cursor repulsion
-        sparks.forEach((s) => {
-          s.y -= s.vy;
-          s.x += s.vx;
-          s.alpha += s.fadeSpeed;
-          if (s.alpha > 1 || s.alpha < 0.1) s.fadeSpeed = -s.fadeSpeed;
+      const mx = (mousePosRef.current.x + 1) * 0.5 * W;
+      const my = (mousePosRef.current.y + 1) * 0.5 * H;
 
-          // Cursor repulsion
-          const dx = s.x - mx;
-          const dy = s.y - my;
-          const dist = Math.hypot(dx, dy);
-          if (dist < 90 && dist > 5) {
-            const push = (1 - dist / 90) * 1.8;
-            s.x += (dx / dist) * push;
-            s.y += (dy / dist) * push;
-          }
+      // Update spark positions & twinkle
+      for (let i = 0; i < sparks.length; i++) {
+        const s = sparks[i];
+        s.y -= s.vy;
+        s.x += s.vx;
+        s.alpha += s.fadeSpeed;
+        if (s.alpha > 1 || s.alpha < 0.1) s.fadeSpeed = -s.fadeSpeed;
 
-          // Reset when risen too high
-          if (s.y < H * 0.52 || s.x < 0 || s.x > W) {
-            s.y = s.baseY;
-            s.x = Math.random() * W;
-            s.alpha = Math.random() * 0.5;
-          }
+        const dx = s.x - mx;
+        const dy = s.y - my;
+        const distSq = dx * dx + dy * dy;
+        if (distSq < 8100 && distSq > 25) {
+          const dist = Math.sqrt(distSq);
+          const push = (1 - dist / 90) * 1.8;
+          s.x += (dx / dist) * push;
+          s.y += (dy / dist) * push;
+        }
 
-          ctx.beginPath();
-          ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-          if (s.isBokeh) {
-            ctx.fillStyle = `rgba(255, 140, 60, ${Math.max(0, s.alpha * 0.25)})`;
-          } else {
-            ctx.fillStyle = `rgba(255, 100, 35, ${Math.max(0, Math.min(1, s.alpha * 0.85))})`;
-          }
-          ctx.fill();
-        });
+        if (s.y < H * 0.52 || s.x < 0 || s.x > W) {
+          s.y = s.baseY;
+          s.x = Math.random() * W;
+          s.alpha = Math.random() * 0.5;
+        }
       }
+
+      // Quantized batched fill passes (3 draw calls total instead of 150)
+      ctx.fillStyle = 'rgba(255, 140, 60, 0.22)';
+      ctx.beginPath();
+      for (let i = 0; i < sparks.length; i++) {
+        const s = sparks[i];
+        if (s.isBokeh) {
+          ctx.moveTo(s.x + s.r, s.y);
+          ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        }
+      }
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(255, 100, 35, 0.38)';
+      ctx.beginPath();
+      for (let i = 0; i < sparks.length; i++) {
+        const s = sparks[i];
+        if (!s.isBokeh && s.alpha < 0.5) {
+          ctx.moveTo(s.x + s.r, s.y);
+          ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        }
+      }
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(255, 110, 40, 0.8)';
+      ctx.beginPath();
+      for (let i = 0; i < sparks.length; i++) {
+        const s = sparks[i];
+        if (!s.isBokeh && s.alpha >= 0.5) {
+          ctx.moveTo(s.x + s.r, s.y);
+          ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        }
+      }
+      ctx.fill();
 
       sparksRafRef.current = requestAnimationFrame(drawSparks);
     }
 
-    sparksRafRef.current = requestAnimationFrame(drawSparks);
+    const startSparks = () => {
+      if (!sparksRafRef.current && isVisibleRef.current && !document.hidden) {
+        sparksRafRef.current = requestAnimationFrame(drawSparks);
+      }
+    };
+
+    const stopSparks = () => {
+      if (sparksRafRef.current) {
+        cancelAnimationFrame(sparksRafRef.current);
+        sparksRafRef.current = null;
+      }
+    };
+
+    sparksControlRef.current = { start: startSparks, stop: stopSparks };
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        isVisibleRef.current = entry.isIntersecting;
+        if (entry.isIntersecting) {
+          startSparks();
+        } else {
+          stopSparks();
+        }
+      },
+      { threshold: 0.01 }
+    );
+    observer.observe(container);
 
     const handleResize = () => {
       W = canvas.offsetWidth;
       H = canvas.offsetHeight;
       canvas.width = W * dpr;
       canvas.height = H * dpr;
-      ctx.scale(dpr, dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      rebuildTileCache();
     };
 
     window.addEventListener('resize', handleResize);
     return () => {
-      cancelAnimationFrame(sparksRafRef.current);
+      observer.disconnect();
+      stopSparks();
       window.removeEventListener('resize', handleResize);
     };
-  }, [isSceneInViewport]);
+  }, [rebuildTileCache]);
 
   // ─── 2. 3-Layer Parallax & Proximity Tilt System ───────────────────
   useEffect(() => {
@@ -197,11 +262,13 @@ export default function Scene3ToolsArc() {
         ease: 'sine.inOut',
       });
     } else {
-      // Desktop: Mouse parallax + shared 3D tile proximity tilt
+      // Desktop: Mouse parallax + cached 3D tile proximity tilt (zero getBoundingClientRect per move)
       const handleMouseMove = (e) => {
-        if (!isSceneInViewport()) return;
-        const normX = (e.clientX / window.innerWidth) * 2 - 1;
-        const normY = (e.clientY / window.innerHeight) * 2 - 1;
+        if (!isVisibleRef.current) return;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const normX = (e.clientX / vw) * 2 - 1;
+        const normY = (e.clientY / vh) * 2 - 1;
 
         mousePosRef.current.x = normX;
         mousePosRef.current.y = normY;
@@ -214,20 +281,18 @@ export default function Scene3ToolsArc() {
         nearX(normX * 36);
         nearY(normY * 26);
 
-        // Proximity tilt on all tiles (max 8deg rotateX/rotateY)
-        const tiles = containerRef.current?.querySelectorAll('.tool-glass-tile');
-        if (tiles) {
-          tiles.forEach((tile) => {
-            const rect = tile.getBoundingClientRect();
-            const tileCenterX = rect.left + rect.width / 2;
-            const tileCenterY = rect.top + rect.height / 2;
-            const dx = (e.clientX - tileCenterX) / window.innerWidth;
-            const dy = (e.clientY - tileCenterY) / window.innerHeight;
-            const tiltX = -dy * 14;
-            const tiltY = dx * 14;
-            tile.style.setProperty('--tiltX', `${Math.max(-8, Math.min(8, tiltX))}deg`);
-            tile.style.setProperty('--tiltY', `${Math.max(-8, Math.min(8, tiltY))}deg`);
-          });
+        if (tileCacheRef.current.length === 0) {
+          rebuildTileCache();
+        }
+        const cache = tileCacheRef.current;
+        for (let i = 0; i < cache.length; i++) {
+          const item = cache[i];
+          const dx = (e.clientX - item.cx) / vw;
+          const dy = (e.clientY - item.cy) / vh;
+          const tiltX = Math.max(-8, Math.min(8, -dy * 14));
+          const tiltY = Math.max(-8, Math.min(8, dx * 14));
+          item.el.style.setProperty('--tiltX', `${tiltX}deg`);
+          item.el.style.setProperty('--tiltY', `${tiltY}deg`);
         }
       };
 
@@ -241,7 +306,7 @@ export default function Scene3ToolsArc() {
     return () => {
       if (swayTween) swayTween.kill();
     };
-  }, [isSceneInViewport]);
+  }, [rebuildTileCache]);
 
   // ─── 3. GSAP Master Timeline (200vh Pinned Scrub) ───────────────────
   useEffect(() => {
@@ -257,18 +322,24 @@ export default function Scene3ToolsArc() {
           start: 'top top',
           end: '+=200%',
           pin: true,
-          scrub: 0.3,
+          scrub: 0.2,
+          anticipatePin: 1,
           onEnter: () => {
             isVisibleRef.current = true;
+            sparksControlRef.current.start?.();
+            rebuildTileCache();
           },
           onEnterBack: () => {
             isVisibleRef.current = true;
+            sparksControlRef.current.start?.();
           },
           onLeave: () => {
             isVisibleRef.current = false;
+            sparksControlRef.current.stop?.();
           },
           onLeaveBack: () => {
             isVisibleRef.current = false;
+            sparksControlRef.current.stop?.();
           },
         },
       });
@@ -383,35 +454,22 @@ export default function Scene3ToolsArc() {
       className="relative w-full h-screen bg-[#050505] overflow-hidden select-none"
       style={{ willChange: 'transform', contain: 'layout paint' }}
     >
-      {/* ── Background Film Grain ─────────────────────────────────────── */}
-      <div
-        className="absolute inset-0 pointer-events-none z-40 opacity-[0.035]"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
-          backgroundSize: '200px 200px',
-        }}
-      />
-
-      {/* ── Volumetric Light Cones from Top ───────────────────────────── */}
+      {/* ── Volumetric Light Cones from Top (blur-free radial fade) ───── */}
       <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
         {/* Left Warm Angle Light Cone */}
         <div
-          className="absolute -top-10 left-[18%] w-[38vw] h-[75vh] opacity-7"
+          className="absolute -top-10 left-[18%] w-[38vw] h-[75vh] opacity-55"
           style={{
             background:
-              'linear-gradient(175deg, rgba(255, 180, 80, 0.18) 0%, rgba(255, 90, 31, 0.06) 50%, transparent 80%)',
-            clipPath: 'polygon(45% 0%, 55% 0%, 95% 100%, 5% 100%)',
-            filter: 'blur(35px)',
+              'radial-gradient(ellipse 55% 85% at 50% 0%, rgba(255, 180, 80, 0.14) 0%, rgba(255, 90, 31, 0.04) 48%, transparent 78%)',
           }}
         />
         {/* Right Ambient Light Cone */}
         <div
-          className="absolute -top-10 right-[20%] w-[34vw] h-[70vh] opacity-6"
+          className="absolute -top-10 right-[20%] w-[34vw] h-[70vh] opacity-50"
           style={{
             background:
-              'linear-gradient(185deg, rgba(255, 200, 120, 0.16) 0%, rgba(255, 110, 40, 0.05) 50%, transparent 80%)',
-            clipPath: 'polygon(48% 0%, 52% 0%, 90% 100%, 10% 100%)',
-            filter: 'blur(30px)',
+              'radial-gradient(ellipse 52% 85% at 50% 0%, rgba(255, 200, 120, 0.12) 0%, rgba(255, 110, 40, 0.03) 48%, transparent 78%)',
           }}
         />
       </div>
@@ -635,40 +693,30 @@ export default function Scene3ToolsArc() {
             viewBox="0 0 1440 900"
             preserveAspectRatio="none"
           >
-            <defs>
-              <filter id="ribbon-glow-front" x="-20%" y="-20%" width="140%" height="140%">
-                <feGaussianBlur stdDeviation="6" result="blur" />
-                <feComposite in="SourceGraphic" in2="blur" operator="over" />
-              </filter>
-            </defs>
-
-            {/* Glowing Thick Outer Strands */}
+            {/* Glowing Wide Outer Strands (zero feGaussianBlur filter for 60fps scroll) */}
             <path
               ref={frontRibbonGlow1Ref}
               d="M 740 540 Q 980 620 1260 520"
               fill="none"
-              stroke="rgba(255, 90, 31, 0.6)"
-              strokeWidth="10"
+              stroke="rgba(255, 90, 31, 0.22)"
+              strokeWidth="12"
               strokeLinecap="round"
-              filter="url(#ribbon-glow-front)"
             />
             <path
               ref={frontRibbonGlow2Ref}
               d="M 760 520 Q 1020 600 1320 480"
               fill="none"
-              stroke="rgba(255, 170, 68, 0.55)"
-              strokeWidth="9"
+              stroke="rgba(255, 170, 68, 0.2)"
+              strokeWidth="10"
               strokeLinecap="round"
-              filter="url(#ribbon-glow-front)"
             />
             <path
               ref={frontRibbonGlow3Ref}
               d="M 780 490 Q 1060 570 1380 450"
               fill="none"
-              stroke="rgba(255, 120, 34, 0.5)"
-              strokeWidth="8"
+              stroke="rgba(255, 120, 34, 0.18)"
+              strokeWidth="9"
               strokeLinecap="round"
-              filter="url(#ribbon-glow-front)"
             />
 
             {/* Bright Core Neon Strands */}
@@ -716,7 +764,7 @@ export default function Scene3ToolsArc() {
               return (
                 <div
                   key={tool.name}
-                  className={`tool-glass-tile relative group rounded-2xl p-2.5 sm:p-3 flex flex-col items-center justify-center cursor-pointer transition-all duration-300 ${
+                  className={`tool-glass-tile relative group rounded-2xl p-2.5 sm:p-3 flex flex-col items-center justify-center cursor-pointer transition-colors duration-200 ${
                     isMain
                       ? 'w-[88px] h-[88px] sm:w-[114px] sm:h-[114px]'
                       : 'w-[74px] h-[74px] sm:w-[92px] sm:h-[92px]'
@@ -800,7 +848,7 @@ export default function Scene3ToolsArc() {
               return (
                 <div
                   key={tool.name}
-                  className={`tool-glass-tile relative group rounded-2xl p-2.5 sm:p-3 flex flex-col items-center justify-center cursor-pointer transition-all duration-300 ${
+                  className={`tool-glass-tile relative group rounded-2xl p-2.5 sm:p-3 flex flex-col items-center justify-center cursor-pointer transition-colors duration-200 ${
                     isMain
                       ? 'w-[88px] h-[88px] sm:w-[114px] sm:h-[114px]'
                       : 'w-[74px] h-[74px] sm:w-[92px] sm:h-[92px]'
@@ -873,8 +921,14 @@ export default function Scene3ToolsArc() {
         ref={parallaxNearRef}
         className="absolute inset-0 pointer-events-none z-35 will-change-transform"
       >
-        <div className="absolute top-[20%] left-[8%] w-24 h-24 rounded-full bg-[#ff5a1f]/12 filter blur-[20px]" />
-        <div className="absolute bottom-[28%] right-[10%] w-32 h-32 rounded-full bg-[#ffaa44]/10 filter blur-[28px]" />
+        <div
+          className="absolute top-[18%] left-[7%] w-32 h-32 rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(255,90,31,0.14) 0%, transparent 70%)' }}
+        />
+        <div
+          className="absolute bottom-[26%] right-[9%] w-40 h-40 rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(255,170,68,0.12) 0%, transparent 70%)' }}
+        />
       </div>
 
       {/* ── Soft Orange Light Flash Overlay ───────────────────────────── */}

@@ -28,6 +28,7 @@ export default function IntroSequence({ onComplete }) {
   const subtitleRef = useRef(null);
   const navbarRef = useRef(null);
   const skipBtnRef = useRef(null);
+  const masterTimelineRef = useRef(null);
 
   // Halftone portrait assembly progress (0 -> 1)
   const [halftoneProgress, setHalftoneProgress] = useState(0);
@@ -60,6 +61,14 @@ export default function IntroSequence({ onComplete }) {
     let isMounted = true;
     let masterTimeline = null;
 
+    const handleScrollAutoFinish = () => {
+      if (window.scrollY > window.innerHeight * 0.65 && masterTimelineRef.current) {
+        skipToFinalState();
+        window.removeEventListener('scroll', handleScrollAutoFinish);
+      }
+    };
+    window.addEventListener('scroll', handleScrollAutoFinish, { passive: true });
+
     const startTimeline = () => {
       if (!isMounted) return;
 
@@ -67,6 +76,7 @@ export default function IntroSequence({ onComplete }) {
         masterTimeline = gsap.timeline({
           defaults: { ease: 'power2.out' },
           onComplete: () => {
+            masterTimelineRef.current = null;
             setTimelineComplete(true);
             if (letterRefs.current) {
               gsap.set(letterRefs.current, { clearProps: 'all', opacity: 1 });
@@ -74,6 +84,7 @@ export default function IntroSequence({ onComplete }) {
             if (onComplete) onComplete();
           },
         });
+        masterTimelineRef.current = masterTimeline;
 
         // STEP 1: (0.0 - 0.8s) Center radial glow & pivot dot appear
         masterTimeline.fromTo(
@@ -235,11 +246,19 @@ export default function IntroSequence({ onComplete }) {
 
     return () => {
       isMounted = false;
-      if (masterTimeline) masterTimeline.kill();
+      window.removeEventListener('scroll', handleScrollAutoFinish);
+      if (masterTimelineRef.current) {
+        masterTimelineRef.current.kill();
+        masterTimelineRef.current = null;
+      }
     };
   }, []);
 
   const skipToFinalState = () => {
+    if (masterTimelineRef.current) {
+      masterTimelineRef.current.kill();
+      masterTimelineRef.current = null;
+    }
     setDisplayedLetters(finalLetters);
     setHalftoneProgress(1);
     setTimelineComplete(true);

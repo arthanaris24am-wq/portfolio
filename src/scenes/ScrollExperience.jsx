@@ -11,6 +11,7 @@ import Scene6EditorialRedComponent from './Scene6EditorialRed';
 import Scene7FinishComponent from './Scene7Finish';
 
 gsap.registerPlugin(ScrollTrigger);
+ScrollTrigger.config({ ignoreMobileResize: true });
 
 // Memoized Scene Components to avoid any React re-renders on scroll
 const Scene1Carousel = memo(Scene1CarouselComponent);
@@ -42,31 +43,29 @@ function ScrollExperience() {
 
     // 1. Initialize Single Lenis Smooth Scroll
     const lenis = new Lenis({
-      duration: 1.1,
-      lerp: 0.09,
+      lerp: 0.12,
       smoothWheel: !prefersReducedMotion,
-      touchMultiplier: 1.5,
+      wheelMultiplier: 1,
+      touchMultiplier: 1.4,
     });
     lenisRef.current = lenis;
     window.__lenis = lenis;
 
-    lenis.on('scroll', ScrollTrigger.update);
+    // 2. Sync ScrollTrigger + Direct DOM Scroll Progress (Zero setState & Zero Layout Reads)
+    const onLenisScroll = ({ progress }) => {
+      ScrollTrigger.update();
+      if (progressBarRef.current) {
+        const p = Math.min(Math.max(progress || 0, 0), 1);
+        progressBarRef.current.style.transform = `scaleX(${p})`;
+      }
+    };
+    lenis.on('scroll', onLenisScroll);
 
     const tickerCallback = (time) => {
       lenis.raf(time * 1000);
     };
     gsap.ticker.add(tickerCallback);
-    gsap.ticker.lagSmoothing(0);
-
-    // 2. Direct DOM Scroll Progress (Zero setState)
-    const handleScroll = () => {
-      const totalScroll = document.documentElement.scrollHeight - window.innerHeight;
-      if (totalScroll > 0 && progressBarRef.current) {
-        const p = Math.min(Math.max(window.scrollY / totalScroll, 0), 1);
-        progressBarRef.current.style.transform = `scaleX(${p})`;
-      }
-    };
-    window.addEventListener('scroll', handleScroll, { passive: true });
+    gsap.ticker.lagSmoothing(500, 33);
 
     // 3. Active Scene Tracker via ScrollTrigger (Direct DOM updates)
     const sceneIds = [
@@ -156,10 +155,10 @@ function ScrollExperience() {
     window.addEventListener('resize', handleResize, { passive: true });
 
     return () => {
-      window.removeEventListener('scroll', handleScroll);
       window.removeEventListener('resize', handleResize);
       if (header) header.removeEventListener('click', handleNavClick);
       triggers.forEach((t) => t.kill());
+      lenis.off('scroll', onLenisScroll);
       gsap.ticker.remove(tickerCallback);
       lenis.destroy();
     };
@@ -177,7 +176,7 @@ function ScrollExperience() {
       </div>
 
       {/* Global Scene Counter Indicator (Bottom Left) */}
-      <div className="fixed bottom-5 left-6 sm:left-10 z-50 pointer-events-none flex items-center gap-2 font-mono text-[11px] tracking-widest px-3 py-1 rounded-full border border-white/5 bg-[#050505]/75 text-neutral-400 backdrop-blur-md transition-colors duration-300">
+      <div className="fixed bottom-5 left-6 sm:left-10 z-50 pointer-events-none flex items-center gap-2 font-mono text-[11px] tracking-widest px-3 py-1 rounded-full border border-white/5 bg-[#050505]/90 text-neutral-400 transition-colors duration-300">
         <span className="w-1.5 h-1.5 rounded-full bg-[#ff5a1f]" />
         <span ref={sceneCounterRef}>01 / 07</span>
       </div>

@@ -36,20 +36,19 @@ export default function Scene1Carousel() {
           start: 'top top',
           end: '+=250%',
           pin: true,
-          scrub: 1,
+          scrub: 0.2,
           anticipatePin: 1,
         },
       });
 
-      // Side cards drift outwards, blur and fade out
+      // Side cards drift outwards and fade out (pure transform + opacity for 60fps)
       const sideCards = cardsRef.current.filter((c, idx) => idx !== 2 && c !== null);
 
       tl.to(
         sideCards,
         {
           opacity: 0,
-          scale: 0.75,
-          filter: 'blur(12px)',
+          scale: 0.78,
           y: isMobile ? 40 : 60,
           stagger: 0.03,
           ease: 'power1.inOut',
@@ -74,8 +73,6 @@ export default function Scene1Carousel() {
           scale: isMobile ? 3.6 : 4.4,
           rotationY: 0,
           rotationX: 0,
-          borderRadius: 0,
-          borderWidth: 0,
           ease: 'power2.inOut',
         },
         0.15
@@ -115,7 +112,10 @@ export default function Scene1Carousel() {
       {/* Background radial glow */}
       <div
         ref={glowRef}
-        className="pointer-events-none absolute w-[450px] h-[450px] rounded-full bg-[#ff5a1f]/15 blur-[120px] opacity-40 z-0"
+        className="pointer-events-none absolute w-[540px] h-[540px] rounded-full opacity-55 z-0"
+        style={{
+          background: 'radial-gradient(circle, rgba(255,90,31,0.22) 0%, rgba(255,90,31,0.06) 45%, transparent 72%)',
+        }}
       />
 
       {/* Top Scene Header Cue */}
@@ -154,7 +154,7 @@ export default function Scene1Carousel() {
                   transform: `perspective(1000px) rotateY(${baseRotY}deg) scale(${baseScale})`,
                   transformStyle: 'preserve-3d',
                 }}
-                className={`relative w-[210px] sm:w-[270px] md:w-[310px] h-[320px] sm:h-[400px] md:h-[450px] rounded-2xl overflow-hidden p-6 flex flex-col justify-between transition-shadow duration-500 shrink-0 ${
+                className={`relative w-[210px] sm:w-[270px] md:w-[310px] h-[320px] sm:h-[400px] md:h-[450px] rounded-2xl overflow-hidden p-6 flex flex-col justify-between shrink-0 ${
                   isCenter
                     ? 'border-2 border-[#ff5a1f]/60 bg-gradient-to-b from-[#18181f] via-[#0e0e12] to-[#08080a] shadow-[0_20px_60px_rgba(255,90,31,0.25)] z-20'
                     : 'border border-white/10 bg-gradient-to-b from-neutral-900/90 via-neutral-950 to-black shadow-2xl z-10 opacity-75'

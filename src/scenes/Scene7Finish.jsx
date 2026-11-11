@@ -38,7 +38,7 @@ export default function Scene7Finish() {
           trigger: containerRef.current,
           start: 'top 80%',
           end: 'bottom bottom',
-          scrub: 1,
+          scrub: 0.2,
         },
       });
 
@@ -67,24 +67,26 @@ export default function Scene7Finish() {
       );
     }, containerRef);
 
-    // Interactive 3D cursor tilt for the cluster
+    // Interactive 3D cursor tilt for the cluster (quickTo = zero GC tween allocations)
+    const rotYTo = clusterRef.current
+      ? gsap.quickTo(clusterRef.current, 'rotationY', { duration: 0.4, ease: 'power1.out' })
+      : null;
+    const rotXTo = clusterRef.current
+      ? gsap.quickTo(clusterRef.current, 'rotationX', { duration: 0.4, ease: 'power1.out' })
+      : null;
+
     const handleMouseMove = (e) => {
-      if (!clusterRef.current) return;
+      if (!clusterRef.current || !rotYTo || !rotXTo) return;
       const rect = clusterRef.current.getBoundingClientRect();
       const x = (e.clientX - rect.left) / rect.width - 0.5;
       const y = (e.clientY - rect.top) / rect.height - 0.5;
-
-      gsap.to(clusterRef.current, {
-        rotationY: x * 18,
-        rotationX: -y * 18,
-        duration: 0.5,
-        ease: 'power1.out',
-      });
+      rotYTo(x * 18);
+      rotXTo(-y * 18);
     };
 
     const clusterEl = clusterRef.current;
     if (clusterEl) {
-      clusterEl.addEventListener('mousemove', handleMouseMove);
+      clusterEl.addEventListener('mousemove', handleMouseMove, { passive: true });
     }
 
     return () => {
@@ -103,14 +105,18 @@ export default function Scene7Finish() {
   };
 
   const scrollToTop = () => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (window.__lenis) {
+      window.__lenis.scrollTo(0, { duration: 1.4 });
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   return (
     <section
       id="scene-finish"
       ref={containerRef}
-      className="relative w-full min-h-screen bg-[#FFFFFF] text-[#0a0a0a] selection:bg-[#ff5a1f] selection:text-white px-6 sm:px-14 py-20 sm:py-28 flex flex-col justify-between z-20 transition-colors duration-700"
+      className="relative w-full min-h-screen bg-[#FFFFFF] text-[#0a0a0a] selection:bg-[#ff5a1f] selection:text-white px-6 sm:px-14 py-20 sm:py-28 flex flex-col justify-between z-20"
     >
       {/* Top Scene Header Cue */}
       <div className="flex items-center justify-between border-b border-black/10 pb-6 mb-12 sm:mb-16">

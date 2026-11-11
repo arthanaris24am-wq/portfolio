@@ -23,70 +23,91 @@ export default function Scene4ParticleSpace() {
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
 
-    const ctx = canvas.getContext('2d');
-    let animationFrameId;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    let animationFrameId = null;
+    let isVisible = false;
 
     const isMobile = window.innerWidth < 768;
-    const particleCount = isMobile ? 500 : 1500;
+    const isLowCore = (navigator.hardwareConcurrency || 8) <= 4;
+    const particleCount = isMobile ? 220 : isLowCore ? 340 : 450;
+    const canvasScale = isMobile ? 0.75 : 0.75;
 
-    let width = (canvas.width = window.innerWidth);
-    let height = (canvas.height = window.innerHeight);
+    let width = (canvas.width = Math.round(window.innerWidth * canvasScale));
+    let height = (canvas.height = Math.round(window.innerHeight * canvasScale));
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(0, 0, width, height);
 
     // Initialize 3D particle array [X, Y, Z]
     const pX = new Float32Array(particleCount);
     const pY = new Float32Array(particleCount);
     const pZ = new Float32Array(particleCount);
     const pPrevZ = new Float32Array(particleCount);
+    const pScreenX = new Float32Array(particleCount);
+    const pScreenY = new Float32Array(particleCount);
+    const pPrevScreenX = new Float32Array(particleCount);
+    const pPrevScreenY = new Float32Array(particleCount);
+    const pDraw = new Uint8Array(particleCount);
 
     const fov = 350;
     const maxZ = 1200;
 
     for (let i = 0; i < particleCount; i++) {
-      pX[i] = (Math.random() - 0.5) * width * 2.5;
-      pY[i] = (Math.random() - 0.5) * height * 2.5;
-      pZ[i] = Math.random() * maxZ + 1;
+      pX[i] = (Math.random() - 0.5) * width * 2.2;
+      pY[i] = (Math.random() - 0.5) * height * 2.2;
+      pZ[i] = Math.random() * maxZ + 16;
       pPrevZ[i] = pZ[i];
     }
 
     const resize = () => {
-      width = canvas.width = window.innerWidth;
-      height = canvas.height = window.innerHeight;
+      width = canvas.width = Math.round(window.innerWidth * canvasScale);
+      height = canvas.height = Math.round(window.innerHeight * canvasScale);
+      ctx.fillStyle = '#050505';
+      ctx.fillRect(0, 0, width, height);
     };
     window.addEventListener('resize', resize, { passive: true });
 
-    // Render 60fps 3D warp flight
+    // Batched 3D warp flight with viewport culling (prevents Skia huge-line rasterizer stalls)
     const render = () => {
-      ctx.fillStyle = 'rgba(5, 5, 5, 0.45)';
+      animationFrameId = null;
+      if (!isVisible || document.hidden) return;
+
+      ctx.fillStyle = 'rgba(5, 5, 5, 0.48)';
       ctx.fillRect(0, 0, width, height);
 
-      const cx = width / 2;
-      const cy = height / 2;
-      const mx = mouseRef.current.rawX;
-      const my = mouseRef.current.rawY;
+      const cx = width * 0.5;
+      const cy = height * 0.5;
+      const mx = mouseRef.current.rawX * canvasScale;
+      const my = mouseRef.current.rawY * canvasScale;
       const speed = 2.5 * warpSpeedRef.current;
 
       for (let i = 0; i < particleCount; i++) {
         pPrevZ[i] = pZ[i];
         pZ[i] -= speed;
 
-        if (pZ[i] <= 1) {
+        if (pZ[i] <= 16) {
           pZ[i] = maxZ;
           pPrevZ[i] = maxZ;
-          pX[i] = (Math.random() - 0.5) * width * 2.5;
-          pY[i] = (Math.random() - 0.5) * height * 2.5;
+          pX[i] = (Math.random() - 0.5) * width * 2.2;
+          pY[i] = (Math.random() - 0.5) * height * 2.2;
         }
 
         const k = fov / pZ[i];
         let px = pX[i] * k + cx;
         let py = pY[i] * k + cy;
 
-        // Cursor deflection
+        // Cull offscreen points before path construction to prevent extreme offscreen strokes
+        if (px < -60 || px > width + 60 || py < -60 || py > height + 60) {
+          pDraw[i] = 0;
+          continue;
+        }
+
         const dx = px - mx;
         const dy = py - my;
         const distSq = dx * dx + dy * dy;
-        if (distSq < 22500) { // 150px deflection radius
+        if (distSq < 22500 && distSq > 1) {
           const dist = Math.sqrt(distSq);
           const force = (1 - dist / 150) * 20;
           px += (dx / dist) * force;
@@ -97,28 +118,89 @@ export default function Scene4ParticleSpace() {
         const prevPx = pX[i] * prevK + cx;
         const prevPy = pY[i] * prevK + cy;
 
-        const size = Math.max(0.6, (1 - pZ[i] / maxZ) * 2.8);
-        const alpha = Math.min(1, Math.max(0.15, 1 - pZ[i] / maxZ));
+        // Also skip huge lines spanning from offscreen
+        if (Math.abs(px - prevPx) > 260 || Math.abs(py - prevPy) > 260) {
+          pDraw[i] = 0;
+          continue;
+        }
 
-        // Light streak trail when moving forward
-        ctx.strokeStyle = `rgba(230, 245, 255, ${alpha * 0.75})`;
-        ctx.lineWidth = size * 0.8;
-        ctx.beginPath();
-        ctx.moveTo(prevPx, prevPy);
-        ctx.lineTo(px, py);
-        ctx.stroke();
-
-        // Particle head
-        ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
-        ctx.beginPath();
-        ctx.arc(px, py, size, 0, Math.PI * 2);
-        ctx.fill();
+        pDraw[i] = 1;
+        pPrevScreenX[i] = prevPx;
+        pPrevScreenY[i] = prevPy;
+        pScreenX[i] = px;
+        pScreenY[i] = py;
       }
+
+      // Pass 1: Far depth streaks (dimmer, thinner)
+      ctx.strokeStyle = 'rgba(220, 240, 255, 0.32)';
+      ctx.lineWidth = 0.9;
+      ctx.beginPath();
+      for (let i = 0; i < particleCount; i++) {
+        if (pDraw[i] && pZ[i] > maxZ * 0.5) {
+          ctx.moveTo(pPrevScreenX[i], pPrevScreenY[i]);
+          ctx.lineTo(pScreenX[i], pScreenY[i]);
+        }
+      }
+      ctx.stroke();
+
+      // Pass 2: Near depth streaks (brighter, thicker)
+      ctx.strokeStyle = 'rgba(235, 248, 255, 0.72)';
+      ctx.lineWidth = 1.7;
+      ctx.beginPath();
+      for (let i = 0; i < particleCount; i++) {
+        if (pDraw[i] && pZ[i] <= maxZ * 0.5) {
+          ctx.moveTo(pPrevScreenX[i], pPrevScreenY[i]);
+          ctx.lineTo(pScreenX[i], pScreenY[i]);
+        }
+      }
+      ctx.stroke();
+
+      // Pass 3: Far star heads
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.42)';
+      ctx.beginPath();
+      for (let i = 0; i < particleCount; i++) {
+        if (pDraw[i] && pZ[i] > maxZ * 0.5) {
+          ctx.rect(pScreenX[i] - 0.6, pScreenY[i] - 0.6, 1.3, 1.3);
+        }
+      }
+      ctx.fill();
+
+      // Pass 4: Near star heads
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+      ctx.beginPath();
+      for (let i = 0; i < particleCount; i++) {
+        if (pDraw[i] && pZ[i] <= maxZ * 0.5) {
+          const sz = Math.min(2.6, Math.max(1.3, (1 - pZ[i] / maxZ) * 2.6));
+          ctx.rect(pScreenX[i] - sz * 0.5, pScreenY[i] - sz * 0.5, sz, sz);
+        }
+      }
+      ctx.fill();
 
       animationFrameId = requestAnimationFrame(render);
     };
 
-    render();
+    const startRender = () => {
+      if (!animationFrameId && isVisible && !document.hidden) {
+        animationFrameId = requestAnimationFrame(render);
+      }
+    };
+
+    const stopRender = () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+    };
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        isVisible = entry.isIntersecting;
+        if (isVisible) startRender();
+        else stopRender();
+      },
+      { threshold: 0.01 }
+    );
+    observer.observe(container);
 
     // GSAP ScrollTrigger timeline for Scene 4
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -132,22 +214,37 @@ export default function Scene4ParticleSpace() {
             start: 'top top',
             end: '+=250%',
             pin: true,
-            scrub: 1,
+            scrub: 0.2,
             anticipatePin: 1,
+            onEnter: () => {
+              isVisible = true;
+              startRender();
+            },
+            onEnterBack: () => {
+              isVisible = true;
+              startRender();
+            },
+            onLeave: () => {
+              isVisible = false;
+              stopRender();
+            },
+            onLeaveBack: () => {
+              isVisible = false;
+              stopRender();
+            },
             onUpdate: (self) => {
-              // Accelerate warp speed dynamically during active scrolling
-              warpSpeedRef.current = 1.0 + Math.abs(self.getVelocity() / 300);
+              warpSpeedRef.current = 1.0 + Math.min(4, Math.abs(self.getVelocity() / 350));
             },
           },
         });
 
-        // 1. Core scale and 3D rotation
+        // 1. Core scale and 2D/3D rotation (gentle 3D tilt avoids SVG raster churn)
         tl.to(
           coreRef.current,
           {
             rotationZ: 180,
-            rotationY: 360,
-            scale: isMobile ? 1.4 : 1.7,
+            rotationY: 45,
+            scale: isMobile ? 1.3 : 1.5,
             ease: 'none',
           },
           0
@@ -177,13 +274,12 @@ export default function Scene4ParticleSpace() {
           );
         });
 
-        // 3. Fade out at the end transitioning to Scene 5
+        // 3. Fade out at the end transitioning to Scene 5 (transform + opacity only)
         tl.to(
           [coreRef.current, ...panelsRef.current],
           {
-            scale: 2.5,
+            scale: 2.3,
             opacity: 0,
-            filter: 'blur(16px)',
             ease: 'power2.in',
           },
           0.8
@@ -192,13 +288,15 @@ export default function Scene4ParticleSpace() {
     }
 
     const handleMouseMove = (e) => {
+      if (!isVisible) return;
       mouseRef.current.rawX = e.clientX;
       mouseRef.current.rawY = e.clientY;
     };
     window.addEventListener('mousemove', handleMouseMove, { passive: true });
 
     return () => {
-      cancelAnimationFrame(animationFrameId);
+      observer.disconnect();
+      stopRender();
       window.removeEventListener('resize', resize);
       window.removeEventListener('mousemove', handleMouseMove);
       if (ctxGsap) ctxGsap.revert();
@@ -216,6 +314,7 @@ export default function Scene4ParticleSpace() {
     <section
       id="scene-particles"
       ref={containerRef}
+      style={{ willChange: 'transform', contain: 'layout paint' }}
       className="relative w-full h-screen bg-[#050505] text-white overflow-hidden select-none flex items-center justify-center z-10"
     >
       {/* 3D Warp Canvas */}
@@ -232,15 +331,20 @@ export default function Scene4ParticleSpace() {
         </span>
       </div>
 
-      {/* Ambient Cyan/Blue Bloom Glow */}
-      <div className="pointer-events-none absolute w-[500px] h-[500px] rounded-full bg-cyan-500/15 blur-[140px] opacity-75 z-15 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+      {/* Ambient Cyan/Blue Bloom Glow (blur-free radial gradient) */}
+      <div
+        className="pointer-events-none absolute w-[540px] h-[540px] rounded-full opacity-75 z-15 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+        style={{
+          background: 'radial-gradient(circle, rgba(6,182,212,0.22) 0%, rgba(14,165,233,0.06) 45%, transparent 72%)',
+        }}
+      />
 
       {/* Central Floating Neon Crystal / Neural Core */}
       <div className="relative z-30 flex flex-col items-center justify-center pointer-events-none">
         <div
           ref={coreRef}
-          style={{ transformStyle: 'preserve-3d' }}
-          className="relative w-36 h-36 sm:w-48 sm:h-48 flex items-center justify-center filter drop-shadow-[0_0_35px_rgba(0,229,255,0.7)]"
+          style={{ transformStyle: 'preserve-3d', willChange: 'transform, opacity' }}
+          className="relative w-36 h-36 sm:w-48 sm:h-48 flex items-center justify-center"
         >
           {/* Geometric Crystal / Neural Core SVG */}
           <svg viewBox="0 0 200 200" className="w-full h-full">
@@ -250,6 +354,10 @@ export default function Scene4ParticleSpace() {
                 <stop offset="50%" stopColor="#38bdf8" />
                 <stop offset="100%" stopColor="#0284c7" />
               </linearGradient>
+              <radialGradient id="coreHalo" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="rgba(0,229,255,0.65)" />
+                <stop offset="100%" stopColor="rgba(0,229,255,0)" />
+              </radialGradient>
             </defs>
             <polygon
               points="100,15 180,60 180,140 100,185 20,140 20,60"
@@ -269,7 +377,8 @@ export default function Scene4ParticleSpace() {
             <line x1="100" y1="15" x2="100" y2="185" stroke="url(#neonCyan)" strokeWidth="1.5" opacity="0.7" />
             <line x1="20" y1="60" x2="180" y2="140" stroke="url(#neonCyan)" strokeWidth="1.5" opacity="0.7" />
             <line x1="20" y1="140" x2="180" y2="60" stroke="url(#neonCyan)" strokeWidth="1.5" opacity="0.7" />
-            <circle cx="100" cy="100" r="14" fill="#ffffff" filter="drop-shadow(0 0 15px #00e5ff)" />
+            <circle cx="100" cy="100" r="34" fill="url(#coreHalo)" />
+            <circle cx="100" cy="100" r="14" fill="#ffffff" />
           </svg>
         </div>
 
@@ -286,7 +395,8 @@ export default function Scene4ParticleSpace() {
               <div
                 key={panel.title}
                 ref={(el) => (panelsRef.current[idx] = el)}
-                className={`absolute ${positions[idx]} whitespace-nowrap px-4 py-2 sm:px-5 sm:py-2.5 rounded-2xl bg-neutral-900/80 border border-cyan-400/40 backdrop-blur-xl shadow-[0_10px_35px_rgba(0,229,255,0.2)] flex flex-col items-center pointer-events-auto cursor-default hover:border-cyan-300 hover:scale-110 transition-all duration-300`}
+                style={{ willChange: 'transform, opacity' }}
+                className={`absolute ${positions[idx]} whitespace-nowrap px-4 py-2 sm:px-5 sm:py-2.5 rounded-2xl bg-[#0d1218]/90 border border-cyan-400/40 shadow-[0_10px_28px_rgba(0,229,255,0.18)] flex flex-col items-center pointer-events-auto cursor-default hover:border-cyan-300`}
               >
                 <span className="text-[9px] sm:text-[10px] font-mono uppercase tracking-widest text-cyan-400">
                   {panel.tag}

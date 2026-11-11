@@ -54,20 +54,55 @@ export default function CanvasStars() {
       });
     }
 
+    let isHeroVisible = window.scrollY <= window.innerHeight * 1.15;
+
     const handleResize = () => {
       width = canvas.width = window.innerWidth;
       height = canvas.height = window.innerHeight;
     };
 
+    const startLoop = () => {
+      if (!animationFrameId && isHeroVisible && !document.hidden) {
+        animationFrameId = requestAnimationFrame(render);
+      }
+    };
+
+    const stopLoop = () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.hidden) stopLoop();
+      else startLoop();
+    };
+
+    const handleScroll = () => {
+      const visible = window.scrollY <= height * 1.15;
+      if (visible !== isHeroVisible) {
+        isHeroVisible = visible;
+        if (visible) startLoop();
+        else stopLoop();
+      }
+    };
+
     window.addEventListener('resize', handleResize);
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    document.addEventListener('visibilitychange', handleVisibility);
 
     const render = () => {
+      animationFrameId = null;
+      if (!isHeroVisible || document.hidden) return;
+
       ctx.clearRect(0, 0, width, height);
 
+      // Update positions and batch draw calls (zero ctx.shadowBlur)
+      ctx.fillStyle = 'rgba(240, 240, 255, 0.35)';
+      ctx.beginPath();
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
-
-        // Twinkle update
         p.alpha += p.twinkleSpeed * p.twinkleDir;
         if (p.alpha > 0.85) {
           p.alpha = 0.85;
@@ -77,41 +112,54 @@ export default function CanvasStars() {
           p.twinkleDir = 1;
         }
 
-        // Position update
         p.x += p.vx;
         p.y += p.vy;
-
-        // Wrap around viewport edges
         if (p.x < 0) p.x = width;
         if (p.x > width) p.x = 0;
         if (p.y < 0) p.y = height;
         if (p.y > height) p.y = 0;
 
-        // Draw particle
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-
-        if (p.isEmber) {
-          ctx.fillStyle = `rgba(255, 90, 31, ${p.alpha})`;
-          ctx.shadowBlur = 8;
-          ctx.shadowColor = 'rgba(255, 90, 31, 0.6)';
-        } else {
-          ctx.fillStyle = `rgba(240, 240, 255, ${p.alpha * 0.7})`;
-          ctx.shadowBlur = 0;
+        if (!p.isEmber) {
+          ctx.moveTo(p.x + p.radius, p.y);
+          ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
         }
-
-        ctx.fill();
-        ctx.shadowBlur = 0;
       }
+      ctx.fill();
+
+      // Ember halos + bright cores batched
+      ctx.fillStyle = 'rgba(255, 90, 31, 0.18)';
+      ctx.beginPath();
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        if (p.isEmber) {
+          const haloR = p.radius * 2.6;
+          ctx.moveTo(p.x + haloR, p.y);
+          ctx.arc(p.x, p.y, haloR, 0, Math.PI * 2);
+        }
+      }
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(255, 90, 31, 0.72)';
+      ctx.beginPath();
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        if (p.isEmber) {
+          ctx.moveTo(p.x + p.radius, p.y);
+          ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        }
+      }
+      ctx.fill();
 
       animationFrameId = requestAnimationFrame(render);
     };
 
-    render();
+    if (isHeroVisible) render();
 
     return () => {
       window.removeEventListener('resize', handleResize);
-      cancelAnimationFrame(animationFrameId);
+      window.removeEventListener('scroll', handleScroll);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      stopLoop();
     };
   }, []);
 
