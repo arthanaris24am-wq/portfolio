@@ -80,10 +80,10 @@ export default function Scene2Poster() {
 
     // Target hanging position: card top sits at ~22% of viewport height
     const targetCardTop = isMobile ? H * 0.28 : H * 0.22;
-    const targetRopeLen = targetCardTop - (-40);
+    const totalRopeLength = targetCardTop - (-40);
 
-    const SEG = 6;
-    const restLen = targetRopeLen / SEG;
+    const SEG = 8;
+    const restLen = totalRopeLength / SEG;
     const gravity = 0.55;
     const damping = 0.985;
 
@@ -103,8 +103,16 @@ export default function Scene2Poster() {
     }
 
     let dragging = false;
-    let dragOffsetX = 0;
-    let dragOffsetY = 0;
+    let activePointerId = null;
+    let dragTargetX = anchor.x;
+    let dragTargetY = anchor.y + totalRopeLength;
+    let grabOffsetX = 0;
+    let grabOffsetY = 0;
+
+    // Fixed timestep accumulator (1/60s)
+    const FIXED_DT = 1000 / 60;
+    let lastTime = performance.now();
+    let accumulator = 0;
 
     function resetRope(startY) {
       for (let i = 0; i <= SEG; i++) {
@@ -115,25 +123,45 @@ export default function Scene2Poster() {
       }
     }
 
+    function resetSafety() {
+      if (cardStateRef.current !== 'hanging') return;
+      const last = nodes[SEG];
+      const dist = Math.hypot(last.x - anchor.x, last.y - anchor.y);
+      if (!Number.isFinite(dist) || dist > totalRopeLength * 1.3 || dist < 10) {
+        resetRope(anchor.y);
+        if (dragging) endDrag();
+      }
+    }
+
     function simulate() {
-      // 1. Recover from any NaN values
-      let hasNaN = false;
+      // 1. Safety check for NaN/Infinity or overstretched card
+      let hasInvalid = false;
       for (let i = 0; i <= SEG; i++) {
+        const n = nodes[i];
         if (
-          Number.isNaN(nodes[i].x) ||
-          Number.isNaN(nodes[i].y) ||
-          Number.isNaN(nodes[i].px) ||
-          Number.isNaN(nodes[i].py)
+          !Number.isFinite(n.x) ||
+          !Number.isFinite(n.y) ||
+          !Number.isFinite(n.px) ||
+          !Number.isFinite(n.py)
         ) {
-          hasNaN = true;
+          hasInvalid = true;
           break;
         }
       }
-      if (hasNaN) {
+      const currentDist = Math.hypot(nodes[SEG].x - anchor.x, nodes[SEG].y - anchor.y);
+      if (hasInvalid || (cardStateRef.current === 'hanging' && currentDist > totalRopeLength * 1.3)) {
         resetRope(anchor.y);
+        if (dragging) endDrag();
+        return;
       }
 
-      // 2. Verlet integration
+      // 2. Fixed top anchor
+      nodes[0].x = anchor.x;
+      nodes[0].y = anchor.y;
+      nodes[0].px = anchor.x;
+      nodes[0].py = anchor.y;
+
+      // 3. Verlet integration
       for (let i = 1; i <= SEG; i++) {
         const n = nodes[i];
         const vx = (n.x - n.px) * damping;
@@ -144,8 +172,26 @@ export default function Scene2Poster() {
         n.y += vy + gravity;
       }
 
-      // 3. Distance constraints relaxation (16 iterations for high stiffness)
-      for (let iter = 0; iter < 16; iter++) {
+      // 4. Restoring spring force (only when not dragging)
+      // Pulls toward rest position (anchor.x, anchor.y + totalRopeLength)
+      if (!dragging && cardStateRef.current === 'hanging') {
+        const restX = anchor.x;
+        const restY = anchor.y + totalRopeLength;
+        const last = nodes[SEG];
+        last.x += (restX - last.x) * 0.002;
+        last.y += (restY - last.y) * 0.002;
+      }
+
+      // 5. Smooth drag follow (lerp 0.35 per frame)
+      if (dragging && cardStateRef.current === 'hanging') {
+        const last = nodes[SEG];
+        last.x += (dragTargetX - last.x) * 0.35;
+        last.y += (dragTargetY - last.y) * 0.35;
+      }
+
+      // 6. Distance constraints relaxation
+      const iterations = dragging ? 20 : 14;
+      for (let iter = 0; iter < iterations; iter++) {
         nodes[0].x = anchor.x;
         nodes[0].y = anchor.y;
 
@@ -154,11 +200,10 @@ export default function Scene2Poster() {
           const b = nodes[i + 1];
           const dx = b.x - a.x;
           const dy = b.y - a.y;
-          const dist = Math.hypot(dx, dy) || 0.001;
+          const dist = Math.hypot(dx, dy) || 0.0001;
           const diff = (dist - restLen) / dist;
 
           if (i === 0) {
-            // Anchor is fixed: node 1 absorbs full constraint
             b.x -= dx * diff;
             b.y -= dy * diff;
           } else {
@@ -170,13 +215,16 @@ export default function Scene2Poster() {
             b.y -= oy;
           }
         }
-      }
 
-      // 4. If user is dragging the card
-      if (dragging && cardStateRef.current === 'hanging') {
+        // Project card's end point back inside circle of radius = totalRopeLength around anchor
         const last = nodes[SEG];
-        last.x = dragOffsetX;
-        last.y = dragOffsetY;
+        const cdx = last.x - anchor.x;
+        const cdy = last.y - anchor.y;
+        const cdist = Math.hypot(cdx, cdy) || 0.0001;
+        if (cdist > totalRopeLength) {
+          last.x = anchor.x + (cdx / cdist) * totalRopeLength;
+          last.y = anchor.y + (cdy / cdist) * totalRopeLength;
+        }
       }
     }
 
@@ -297,20 +345,34 @@ export default function Scene2Poster() {
       card.style.transform = `translate3d(${cardLeft}px, ${cardTop}px, 0) rotate(${angleDeg}deg)`;
     }
 
-    function loop() {
+    function loop(time) {
       rafRef.current = null;
-      if (!isVisibleRef.current || document.hidden) return;
-      simulate();
-      const end = nodes[SEG];
-      const moved = Math.abs(end.x - end.oldX) + Math.abs(end.y - end.oldY);
-      if (dragging || cardStateRef.current !== 'hanging' || moved > 0.03) {
-        draw();
+      if (!isVisibleRef.current) return;
+
+      const now = time || performance.now();
+      if (!lastTime) lastTime = now;
+      const elapsed = Math.min(now - lastTime, 100);
+      lastTime = now;
+      accumulator += elapsed;
+
+      let steps = 0;
+      while (accumulator >= FIXED_DT && steps < 3) {
+        simulate();
+        accumulator -= FIXED_DT;
+        steps++;
       }
+      if (accumulator > FIXED_DT * 3) {
+        accumulator = 0;
+      }
+
+      draw();
       rafRef.current = requestAnimationFrame(loop);
     }
 
     function startLoop() {
-      if (!rafRef.current && isVisibleRef.current && !document.hidden) {
+      lastTime = performance.now();
+      accumulator = 0;
+      if (!rafRef.current && isVisibleRef.current) {
         rafRef.current = requestAnimationFrame(loop);
       }
     }
@@ -322,65 +384,125 @@ export default function Scene2Poster() {
       }
     }
 
-    // ── Mouse & Touch Drag Handlers ─────────────────────────────────
+    // ── Pointer Drag & Interaction Handlers ─────────────────────────
     function getEventPos(e) {
       const rect = container.getBoundingClientRect();
-      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      const clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches && e.touches.length > 0 ? e.touches[0].clientY : e.clientY;
       return { x: clientX - rect.left, y: clientY - rect.top };
     }
 
-    function handleStart(e) {
-      if (cardStateRef.current !== 'hanging') return;
+    function updateDragTarget(e) {
       const pos = getEventPos(e);
+      const wantedX = pos.x - grabOffsetX;
+      const wantedY = pos.y - grabOffsetY;
 
-      const cardBox = card.getBoundingClientRect();
-      const containerBox = container.getBoundingClientRect();
-      const cardX = cardBox.left - containerBox.left;
-      const cardY = cardBox.top - containerBox.top;
+      const dx = wantedX - anchor.x;
+      const dy = wantedY - anchor.y;
+      const dist = Math.hypot(dx, dy) || 0.0001;
 
-      if (
-        pos.x >= cardX - 20 &&
-        pos.x <= cardX + cardW + 20 &&
-        pos.y >= cardY - 20 &&
-        pos.y <= cardY + cardH + 20
-      ) {
-        dragging = true;
-        dragOffsetX = pos.x;
-        dragOffsetY = pos.y;
-        e.preventDefault();
+      // Clamp pointer target strictly to circle of radius = totalRopeLength
+      if (dist > totalRopeLength) {
+        dragTargetX = anchor.x + (dx / dist) * totalRopeLength;
+        dragTargetY = anchor.y + (dy / dist) * totalRopeLength;
+      } else if (wantedY < anchor.y + 10) {
+        dragTargetX = anchor.x + (dx || 0.01) * 0.5;
+        dragTargetY = anchor.y + 10;
+      } else {
+        dragTargetX = wantedX;
+        dragTargetY = wantedY;
       }
     }
 
-    function handleMove(e) {
+    function handlePointerDown(e) {
+      if (cardStateRef.current !== 'hanging') return;
+      if (e.button !== undefined && e.button !== 0) return;
+
+      dragging = true;
+      activePointerId = e.pointerId;
+      try {
+        card.setPointerCapture(e.pointerId);
+      } catch (err) {}
+
       const pos = getEventPos(e);
+      grabOffsetX = pos.x - nodes[SEG].x;
+      grabOffsetY = pos.y - nodes[SEG].y;
+
+      updateDragTarget(e);
+
+      card.style.cursor = 'grabbing';
+      window.addEventListener('pointerup', handlePointerUp, { passive: true });
+      window.addEventListener('pointercancel', handlePointerUp, { passive: true });
+    }
+
+    function endDrag() {
+      if (!dragging) return;
+      dragging = false;
+
+      if (activePointerId !== null) {
+        try {
+          card.releasePointerCapture(activePointerId);
+        } catch (err) {}
+        activePointerId = null;
+      }
+
+      card.style.cursor = 'grab';
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+
+      // On release, keep velocity but clamp to max 40 px/frame so card does not fly away
+      const last = nodes[SEG];
+      let vx = last.x - last.px;
+      let vy = last.y - last.py;
+      const speed = Math.hypot(vx, vy);
+      if (speed > 40) {
+        vx = (vx / speed) * 40;
+        vy = (vy / speed) * 40;
+        last.px = last.x - vx;
+        last.py = last.y - vy;
+      }
+    }
+
+    function handlePointerUp() {
+      endDrag();
+    }
+
+    function handleLostPointerCapture() {
+      endDrag();
+    }
+
+    function handlePointerMove(e) {
       if (dragging && cardStateRef.current === 'hanging') {
-        dragOffsetX = pos.x;
-        dragOffsetY = pos.y;
-        e.preventDefault();
+        updateDragTarget(e);
       } else if (cardStateRef.current === 'hanging') {
-        // Proximity nudge
+        // Gentle proximity nudge on hover near the strap
+        const pos = getEventPos(e);
         for (let i = 2; i <= SEG; i++) {
           const n = nodes[i];
           const dist = Math.hypot(n.x - pos.x, n.y - pos.y);
-          if (dist < 100 && dist > 5) {
-            const force = (1 - dist / 100) * 1.5;
+          if (dist < 80 && dist > 5) {
+            const force = (1 - dist / 80) * 0.8;
             n.x += ((n.x - pos.x) / dist) * force;
           }
         }
       }
     }
 
-    function handleEnd() {
-      dragging = false;
-    }
+    const handleWindowBlur = () => endDrag();
+    const handleVisChange = () => {
+      if (document.hidden) endDrag();
+    };
 
-    window.addEventListener('mousedown', handleStart);
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleEnd);
-    window.addEventListener('touchstart', handleStart, { passive: false });
-    window.addEventListener('touchmove', handleMove, { passive: false });
-    window.addEventListener('touchend', handleEnd);
+    card.style.touchAction = 'none';
+    card.style.cursor = 'grab';
+
+    card.addEventListener('pointerdown', handlePointerDown);
+    card.addEventListener('pointerup', handlePointerUp);
+    card.addEventListener('pointercancel', handlePointerUp);
+    card.addEventListener('lostpointercapture', handleLostPointerCapture);
+    window.addEventListener('pointermove', handlePointerMove, { passive: true });
+    window.addEventListener('blur', handleWindowBlur);
+    document.addEventListener('visibilitychange', handleVisChange);
 
     physicsRef.current = {
       nodes,
@@ -389,10 +511,12 @@ export default function Scene2Poster() {
       restLen,
       cardW,
       cardH,
-      targetRopeLen,
+      targetRopeLen: totalRopeLength,
       resetRope,
+      resetSafety,
       startLoop,
       stopLoop,
+      endDrag,
     };
 
     // Draw initial settled frame and start rAF only if visible
@@ -402,12 +526,16 @@ export default function Scene2Poster() {
 
     return () => {
       stopLoop();
-      window.removeEventListener('mousedown', handleStart);
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleEnd);
-      window.removeEventListener('touchstart', handleStart);
-      window.removeEventListener('touchmove', handleMove);
-      window.removeEventListener('touchend', handleEnd);
+      endDrag();
+      card.removeEventListener('pointerdown', handlePointerDown);
+      card.removeEventListener('pointerup', handlePointerUp);
+      card.removeEventListener('pointercancel', handlePointerUp);
+      card.removeEventListener('lostpointercapture', handleLostPointerCapture);
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+      window.removeEventListener('blur', handleWindowBlur);
+      document.removeEventListener('visibilitychange', handleVisChange);
     };
   }, []);
 
@@ -420,6 +548,7 @@ export default function Scene2Poster() {
       ([entry]) => {
         isVisibleRef.current = entry.isIntersecting;
         if (entry.isIntersecting) {
+          physicsRef.current?.resetSafety?.();
           physicsRef.current?.startLoop?.();
         } else {
           physicsRef.current?.stopLoop?.();
@@ -459,10 +588,12 @@ export default function Scene2Poster() {
         anticipatePin: 1,
         onEnter: () => {
           isVisibleRef.current = true;
+          physicsRef.current?.resetSafety?.();
           physicsRef.current?.startLoop?.();
         },
         onEnterBack: () => {
           isVisibleRef.current = true;
+          physicsRef.current?.resetSafety?.();
           physicsRef.current?.startLoop?.();
         },
         onLeave: () => {
@@ -490,6 +621,7 @@ export default function Scene2Poster() {
     }
 
     if (cardStateRef.current === 'hanging') {
+      p.endDrag?.();
       // Transition to HIDING
       cardStateRef.current = 'hiding';
       setIsButtonDisabled(true);
@@ -650,6 +782,7 @@ export default function Scene2Poster() {
           transformOrigin: '50% 0',
           willChange: 'transform',
           transition: 'opacity 0.2s ease',
+          touchAction: 'none',
         }}
       >
         {/* Card Body */}
